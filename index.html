@@ -1,0 +1,1694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Duck Drift</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+    font-family: monospace;
+  }
+  canvas {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    max-width: 100vw;
+    max-height: 100vh;
+    cursor: none;
+  }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+// ============================================================
+// DUCK DRIFT — A Paper Trading Duck Hunt
+// ============================================================
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+// Logical resolution
+const W = 800;
+const H = 500;
+canvas.width = W;
+canvas.height = H;
+ctx.imageSmoothingEnabled = false;
+
+// ---- CONFIG ----
+const CONFIG = {
+  roundDuration: 60,
+  signalFrequency: 0.10,
+  fakeoutFrequency: 0.15,
+  tradeHoldTime: [5, 8],
+  passivePointRate: 0.5,
+  overtradingThreshold: 10,
+  maxMultiplier: 5.0,
+  maxConcurrentTrades: 3,
+  duckSpawnBase: 0.9,
+};
+
+// ---- UTILITY ----
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function randRange(a, b) { return a + Math.random() * (b - a); }
+
+// ---- AUDIO (Web Audio oscillator sounds) ----
+const Audio = {
+  ctx: null,
+  init() {
+    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  },
+  ensure() {
+    if (!this.ctx) this.init();
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+  },
+  play(freq, type, duration, vol) {
+    this.ensure();
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = type;
+    o.frequency.value = freq;
+    g.gain.value = vol || 0.15;
+    g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
+    o.connect(g);
+    g.connect(this.ctx.destination);
+    o.start();
+    o.stop(this.ctx.currentTime + duration);
+  },
+  shoot() { this.play(800, 'square', 0.08, 0.12); this.play(200, 'noise' in OscillatorNode.prototype ? 'sawtooth' : 'sawtooth', 0.1, 0.1); },
+  quack() { this.play(280, 'square', 0.06, 0.1); setTimeout(() => this.play(320, 'square', 0.08, 0.1), 70); },
+  goodTrade() { this.play(523, 'square', 0.1, 0.1); setTimeout(() => this.play(659, 'square', 0.1, 0.1), 100); setTimeout(() => this.play(784, 'square', 0.15, 0.1), 200); },
+  badTrade() { this.play(200, 'sawtooth', 0.2, 0.12); setTimeout(() => this.play(150, 'sawtooth', 0.3, 0.12), 100); },
+  roundEnd() { this.play(440, 'square', 0.15, 0.1); setTimeout(() => this.play(349, 'square', 0.15, 0.1), 150); setTimeout(() => this.play(261, 'square', 0.3, 0.1), 300); },
+};
+
+// ---- SPRITE FACTORY ----
+const SpriteFactory = {
+  cache: {},
+
+  init() {
+    // NES Duck Hunt style ducks - more detailed, colorful
+    // Green duck: teal body, dark green wings, orange beak, white chest
+    this.cache.greenDuck = this.createNESDuck(
+      '#00aa44', '#006622', '#228833', '#ff8800', '#ffffff', '#000000', '#55cc66'
+    );
+    // Red duck: dark red body, brown wings, orange beak
+    this.cache.redDuck = this.createNESDuck(
+      '#cc2222', '#881111', '#aa3333', '#ff8800', '#ffffff', '#000000', '#ee4444'
+    );
+    // Glow variants (signal ducks) - brighter, more saturated
+    this.cache.greenDuckGlow = this.createNESDuck(
+      '#00dd55', '#00aa33', '#33cc55', '#ffaa00', '#ffffff', '#111111', '#66ff88'
+    );
+    this.cache.redDuckGlow = this.createNESDuck(
+      '#ff3333', '#cc1111', '#ee4444', '#ffaa00', '#ffffff', '#111111', '#ff6666'
+    );
+    this.cache.gun = this.createGun();
+    this.cache.crosshair = this.createCrosshair();
+    this.cache.tree = this.createTree();
+    this.cache.bush = this.createBush();
+  },
+
+  renderPixels(rows, palette, scale) {
+    const h = rows.length;
+    const w = rows[0].length;
+    const off = document.createElement('canvas');
+    off.width = w * scale;
+    off.height = h * scale;
+    const c = off.getContext('2d');
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const ch = rows[y][x];
+        if (ch === '.') continue;
+        c.fillStyle = palette[ch] || '#f0f';
+        c.fillRect(x * scale, y * scale, scale, scale);
+      }
+    }
+    return off;
+  },
+
+  createNESDuck(body, wing, belly, beak, eye, outline, highlight) {
+    const p = { '.': null, '1': body, '2': wing, '3': beak, '4': eye, '5': outline, '6': belly, '7': highlight };
+    const scale = 3;
+    // More detailed NES-style duck sprites (16x12)
+    // Frame 0: wings up
+    const f0 = [
+      '......22........',
+      '.....2222.......',
+      '....222222......',
+      '....222222......',
+      '..11111111......',
+      '.1111111113355..',
+      '.11114111..55...',
+      '111111111133....',
+      '.1166611111.....',
+      '..166611........',
+      '...111..........',
+      '................',
+    ];
+    // Frame 1: wings mid (horizontal)
+    const f1 = [
+      '................',
+      '................',
+      '..2211111111....',
+      '.222111111113355',
+      '.11111411....55.',
+      '111111111133....',
+      '.1166611111.....',
+      '..22661111......',
+      '...2211.........',
+      '................',
+      '................',
+      '................',
+    ];
+    // Frame 2: wings down
+    const f2 = [
+      '................',
+      '................',
+      '...111111111....',
+      '..1111111113355.',
+      '.11111411...55..',
+      '111111111133....',
+      '.1166611111.....',
+      '..116622111.....',
+      '...22222........',
+      '....2222........',
+      '.....22.........',
+      '................',
+    ];
+    return [
+      this.renderPixels(f0, p, scale),
+      this.renderPixels(f1, p, scale),
+      this.renderPixels(f2, p, scale),
+    ];
+  },
+
+  createGun() {
+    const p = { '.': null, '1': '#555555', '2': '#888888', '3': '#333333', '4': '#8B4513', '5': '#654321' };
+    const rows = [
+      '....111....',
+      '....121....',
+      '....121....',
+      '....131....',
+      '....131....',
+      '....131....',
+      '...11311...',
+      '..1113111..',
+      '.111131111.',
+      '.444131444.',
+      '.455131554.',
+      '.455555554.',
+      '..4555554..',
+      '...44444...',
+    ];
+    return this.renderPixels(rows, p, 3);
+  },
+
+  createTree() {
+    const p = { '.': null, '1': '#228B22', '2': '#2EA82E', '3': '#1A6B1A', '4': '#8B4513', '5': '#6B3410' };
+    const rows = [
+      '......222......',
+      '....2222222....',
+      '...222222222...',
+      '..22211122222..',
+      '.2222331122222.',
+      '.2222233112222.',
+      '..22222331222..',
+      '...222222222...',
+      '....2222222....',
+      '......222......',
+      '.....22222.....',
+      '...222222222...',
+      '..22233112222..',
+      '.2222233112222.',
+      '.2222222222222.',
+      '..22222222222..',
+      '...222222222...',
+      '.....22222.....',
+      '......444......',
+      '......454......',
+      '......454......',
+      '......454......',
+      '......454......',
+      '......444......',
+      '.....44444.....',
+    ];
+    return this.renderPixels(rows, p, 3);
+  },
+
+  createBush() {
+    const p = { '.': null, '1': '#228B22', '2': '#2EA82E', '3': '#1A6B1A', '4': '#3BC43B' };
+    const rows = [
+      '...2222...',
+      '..224222..',
+      '.22224222.',
+      '2222242222',
+      '2231122222',
+      '2233112222',
+      '.22222222.',
+      '..222222..',
+    ];
+    return this.renderPixels(rows, p, 3);
+  },
+
+  createCrosshair() {
+    const off = document.createElement('canvas');
+    off.width = 32;
+    off.height = 32;
+    const c = off.getContext('2d');
+    // Thicker, more visible crosshair
+    c.strokeStyle = '#fff';
+    c.lineWidth = 3;
+    c.beginPath();
+    c.arc(16, 16, 10, 0, Math.PI * 2);
+    c.stroke();
+    c.strokeStyle = '#000';
+    c.lineWidth = 1;
+    c.beginPath();
+    c.arc(16, 16, 10, 0, Math.PI * 2);
+    c.stroke();
+    // Cross
+    c.strokeStyle = '#fff';
+    c.lineWidth = 2;
+    c.beginPath();
+    c.moveTo(16, 2); c.lineTo(16, 10);
+    c.moveTo(16, 22); c.lineTo(16, 30);
+    c.moveTo(2, 16); c.lineTo(10, 16);
+    c.moveTo(22, 16); c.lineTo(30, 16);
+    c.stroke();
+    c.fillStyle = '#f00';
+    c.fillRect(15, 15, 2, 2);
+    return off;
+  },
+
+  flip(img) {
+    const off = document.createElement('canvas');
+    off.width = img.width;
+    off.height = img.height;
+    const c = off.getContext('2d');
+    c.translate(img.width, 0);
+    c.scale(-1, 1);
+    c.drawImage(img, 0, 0);
+    return off;
+  }
+};
+
+// ---- SCENERY (Duck Hunt background elements) ----
+const Scenery = {
+  clouds: [],
+  init() {
+    this.clouds = [];
+    for (let i = 0; i < 5; i++) {
+      this.clouds.push({
+        x: Math.random() * W,
+        y: 30 + Math.random() * 80,
+        w: 60 + Math.random() * 80,
+        speed: 3 + Math.random() * 5,
+      });
+    }
+  },
+  update(dt) {
+    for (const c of this.clouds) {
+      c.x += c.speed * dt;
+      if (c.x > W + c.w) c.x = -c.w;
+    }
+  },
+  drawClouds() {
+    ctx.fillStyle = '#ffffff';
+    for (const c of this.clouds) {
+      ctx.globalAlpha = 0.7;
+      // Simple cloud shape with rounded rects
+      const r = c.w * 0.2;
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
+      ctx.arc(c.x + r * 1.2, c.y - r * 0.4, r * 1.1, 0, Math.PI * 2);
+      ctx.arc(c.x + r * 2.2, c.y, r * 0.8, 0, Math.PI * 2);
+      ctx.arc(c.x + r * 1.1, c.y + r * 0.3, r * 0.7, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+};
+
+// ---- BINANCE LIVE FEED ----
+const BinanceFeed = {
+  ws: null,
+  connected: false,
+  lastPrice: null,
+  basePrice: null,
+  symbol: 'btcusdt',
+  enabled: false,
+
+  connect() {
+    try {
+      this.ws = new WebSocket(`wss://stream.binance.com:9443/ws/${this.symbol}@trade`);
+      this.ws.onopen = () => { this.connected = true; };
+      this.ws.onmessage = (e) => {
+        const data = JSON.parse(e.data);
+        const price = parseFloat(data.p);
+        if (!this.basePrice) this.basePrice = price;
+        this.lastPrice = price;
+      };
+      this.ws.onclose = () => { this.connected = false; };
+      this.ws.onerror = () => { this.connected = false; this.enabled = false; };
+    } catch (e) {
+      this.enabled = false;
+    }
+  },
+
+  disconnect() {
+    if (this.ws) { this.ws.close(); this.ws = null; }
+    this.connected = false;
+    this.lastPrice = null;
+    this.basePrice = null;
+  },
+
+  // Returns normalized price (scaled to ~100 center) for game use
+  getNormalizedPrice() {
+    if (!this.lastPrice || !this.basePrice) return null;
+    // Scale: every 0.1% move in BTC = 1 unit in game
+    return 100 + ((this.lastPrice - this.basePrice) / this.basePrice) * 1000;
+  }
+};
+
+// ---- MARKET SIMULATOR ----
+const Market = {
+  price: 100,
+  momentum: 0,
+  volatility: 0.5,
+  trend: 0,
+  patternTimer: 0,
+  currentPattern: 'noise',
+  patternDuration: 0,
+  history: [],
+  historyTimer: 0,
+  realPrice: null,        // actual BTC price from Binance
+  lastRealPrice: null,
+  priceReturns: [],       // recent returns for pattern detection
+
+  reset() {
+    this.price = 100;
+    this.momentum = 0;
+    this.volatility = 0.5;
+    this.trend = 0;
+    this.currentPattern = 'noise';
+    this.history = [];
+    this.historyTimer = 0;
+    this.priceReturns = [];
+    this.realPrice = null;
+    this.lastRealPrice = null;
+    for (let i = 0; i < 120; i++) this.history.push(100);
+
+    // Connect to Binance
+    BinanceFeed.disconnect();
+    BinanceFeed.connect();
+  },
+
+  update(dt) {
+    const livePrice = BinanceFeed.getNormalizedPrice();
+
+    if (livePrice !== null) {
+      // ---- LIVE MODE: follow real BTC price ----
+      const prevPrice = this.price;
+      // Smooth towards live price (don't teleport)
+      this.price += (livePrice - this.price) * Math.min(1, dt * 8);
+
+      const priceChange = this.price - prevPrice;
+      this.realPrice = BinanceFeed.lastPrice;
+
+      // Derive momentum from actual price movement
+      this.priceReturns.push(priceChange);
+      if (this.priceReturns.length > 30) this.priceReturns.shift();
+
+      // Calculate real momentum from recent returns
+      const recentReturns = this.priceReturns.slice(-10);
+      const avgReturn = recentReturns.reduce((a, b) => a + b, 0) / recentReturns.length;
+      this.momentum = clamp(avgReturn * 5, -2.5, 2.5);
+
+      // Calculate real volatility from returns
+      if (this.priceReturns.length > 5) {
+        const mean = this.priceReturns.reduce((a, b) => a + b, 0) / this.priceReturns.length;
+        const variance = this.priceReturns.reduce((a, b) => a + (b - mean) ** 2, 0) / this.priceReturns.length;
+        this.volatility = Math.sqrt(variance) * 10;
+      }
+
+      // Detect pattern from real price movement
+      this.detectPattern();
+
+      this.trend = clamp(this.momentum / 1.5, -1, 1);
+    } else {
+      // ---- FALLBACK: simulated price if Binance not connected ----
+      this.simulatePrice(dt);
+    }
+
+    this.historyTimer += dt;
+    if (this.historyTimer >= 0.1) {
+      this.historyTimer -= 0.1;
+      this.history.push(this.price);
+      if (this.history.length > 120) this.history.shift();
+    }
+  },
+
+  detectPattern() {
+    // Analyze recent returns to classify market state
+    if (this.priceReturns.length < 10) { this.currentPattern = 'noise'; return; }
+
+    const recent = this.priceReturns.slice(-10);
+    const older = this.priceReturns.slice(-20, -10);
+
+    const recentSum = recent.reduce((a, b) => a + b, 0);
+    const olderSum = older.length > 0 ? older.reduce((a, b) => a + b, 0) : 0;
+    const recentAbs = recent.reduce((a, b) => a + Math.abs(b), 0);
+
+    // Strong directional move = signal
+    if (Math.abs(recentSum) > recentAbs * 0.6) {
+      // Check if it reversed from older period (fakeout)
+      if (older.length > 5 && Math.sign(recentSum) !== Math.sign(olderSum) && Math.abs(olderSum) > 0.3) {
+        this.currentPattern = 'fakeout';
+      } else {
+        this.currentPattern = 'signal';
+      }
+      this.trend = recentSum > 0 ? 1 : -1;
+    } else {
+      this.currentPattern = 'noise';
+    }
+  },
+
+  simulatePrice(dt) {
+    // Fallback simulation when Binance isn't connected
+    const noise = (Math.random() - 0.5) * this.volatility * dt * 60;
+    this.momentum *= (1 - 0.8 * dt);
+    this.momentum += (Math.random() - 0.5) * 0.2 * dt;
+    this.momentum = clamp(this.momentum, -2.5, 2.5);
+    this.price += this.momentum * dt * 10 + noise;
+    this.price = clamp(this.price, 50, 150);
+    this.trend = clamp(this.momentum / 1.5, -1, 1);
+    // Rotate patterns on timer
+    this._patTimer = (this._patTimer || 3) - dt;
+    if (this._patTimer <= 0) {
+      const r = Math.random();
+      this.currentPattern = r < 0.75 ? 'noise' : r < 0.9 ? 'fakeout' : 'signal';
+      this._patTimer = 2 + Math.random() * 4;
+      if (this.currentPattern !== 'noise') this.trend = Math.random() > 0.5 ? 1 : -1;
+    }
+  },
+
+  drawMiniChart() {
+    const cx = W - 140;
+    const cy = 10;
+    const cw = 130;
+    const ch = 40;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(cx, cy, cw, ch);
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.strokeRect(cx, cy, cw, ch);
+
+    if (this.history.length < 2) return;
+    const min = Math.min(...this.history);
+    const max = Math.max(...this.history);
+    const range = max - min || 1;
+
+    ctx.strokeStyle = this.momentum >= 0 ? 'rgba(0,255,100,0.6)' : 'rgba(255,60,60,0.6)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i < this.history.length; i++) {
+      const x = cx + (i / (this.history.length - 1)) * cw;
+      const y = cy + ch - ((this.history[i] - min) / range) * (ch - 4) - 2;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Price label — show real BTC price if connected
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 9px monospace';
+    if (BinanceFeed.connected && this.realPrice) {
+      ctx.fillText('BTC $' + this.realPrice.toFixed(2), cx + 2, cy + 10);
+      // Live indicator
+      ctx.fillStyle = '#0f0';
+      ctx.fillRect(cx + cw - 8, cy + 2, 4, 4);
+      ctx.font = '7px monospace';
+      ctx.fillStyle = '#0f0';
+      ctx.fillText('LIVE', cx + cw - 28, cy + 7);
+    } else {
+      ctx.fillText('$' + this.price.toFixed(2), cx + 2, cy + 10);
+      ctx.fillStyle = '#f80';
+      ctx.font = '7px monospace';
+      ctx.fillText('SIM', cx + cw - 22, cy + 7);
+    }
+    // Pattern indicator
+    const pColor = this.currentPattern === 'signal' ? '#4f4' : this.currentPattern === 'fakeout' ? '#f84' : '#888';
+    ctx.fillStyle = pColor;
+    ctx.fillRect(cx + 2, cy + ch - 6, 4, 4);
+  }
+};
+
+// ---- GAME STATE ----
+const State = {
+  phase: 'menu', // menu | playing | endscreen
+  score: 0,
+  totalPnl: 0,
+  disciplineMultiplier: 1.0,
+  timeSinceLastShot: 0,
+  shotsFired: 0,
+  passivePointTimer: 0,
+  timeRemaining: CONFIG.roundDuration,
+  tradesWon: 0,
+  tradesTotal: 0,
+  bestMultiplier: 1.0,
+  totalTime: 0,
+
+  reset() {
+    this.score = 0;
+    this.totalPnl = 0;
+    this.disciplineMultiplier = 1.0;
+    this.timeSinceLastShot = 0;
+    this.shotsFired = 0;
+    this.passivePointTimer = 0;
+    this.timeRemaining = CONFIG.roundDuration;
+    this.tradesWon = 0;
+    this.tradesTotal = 0;
+    this.bestMultiplier = 1.0;
+    this.totalTime = 0;
+  },
+
+  updateMultiplier(dt) {
+    this.timeSinceLastShot += dt;
+    this.disciplineMultiplier = Math.min(
+      CONFIG.maxMultiplier,
+      1.0 + Math.floor(this.timeSinceLastShot / 2) * 0.2
+    );
+    if (this.disciplineMultiplier > this.bestMultiplier) {
+      this.bestMultiplier = this.disciplineMultiplier;
+    }
+
+    this.passivePointTimer += dt;
+    if (this.passivePointTimer >= CONFIG.passivePointRate) {
+      this.passivePointTimer -= CONFIG.passivePointRate;
+      this.score += 1 * this.disciplineMultiplier;
+    }
+  },
+
+  resetMultiplier() {
+    this.timeSinceLastShot = 0;
+    this.disciplineMultiplier = 1.0;
+  }
+};
+
+// ---- EFFECTS ENGINE ----
+const Effects = {
+  shakeAmount: 0,
+  shakeDuration: 0,
+  flashColor: null,
+  flashAlpha: 0,
+  particles: [],
+  floatingTexts: [],
+  gunRecoil: 0,
+
+  tradeResults: [],
+
+  reset() {
+    this.shakeAmount = 0;
+    this.shakeDuration = 0;
+    this.flashColor = null;
+    this.flashAlpha = 0;
+    this.particles = [];
+    this.floatingTexts = [];
+    this.tradeResults = [];
+    this.gunRecoil = 0;
+  },
+
+  screenShake(dur) {
+    this.shakeDuration = dur;
+    this.shakeAmount = 8;
+  },
+
+  flash(color) {
+    this.flashColor = color;
+    this.flashAlpha = 0.3;
+  },
+
+  spawnParticles(x, y, color, count) {
+    for (let i = 0; i < count; i++) {
+      this.particles.push({
+        x, y,
+        vx: (Math.random() - 0.5) * 250,
+        vy: (Math.random() - 0.5) * 250 - 80,
+        life: 0.4 + Math.random() * 0.4,
+        maxLife: 0.8,
+        color,
+        size: 2 + Math.random() * 3,
+      });
+    }
+  },
+
+  addFloatingText(x, y, text, color) {
+    this.floatingTexts.push({ x, y, text, color, life: 1.5, maxLife: 1.5 });
+  },
+
+  addTradeResult(text, color, amount) {
+    this.tradeResults.push({
+      text,
+      color,
+      amount,
+      life: 2.0,
+      maxLife: 2.0,
+      scale: 0,     // animates in from 0 to 1
+      y: H / 2 - 50,
+    });
+  },
+
+  update(dt) {
+    if (this.shakeDuration > 0) {
+      this.shakeDuration -= dt;
+      this.shakeAmount *= 0.92;
+    } else {
+      this.shakeAmount = 0;
+    }
+
+    if (this.flashAlpha > 0) this.flashAlpha -= dt * 1.5;
+
+    this.gunRecoil *= 0.85;
+
+    for (const p of this.particles) {
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += 500 * dt;
+      p.life -= dt;
+    }
+    this.particles = this.particles.filter(p => p.life > 0);
+
+    for (const t of this.floatingTexts) {
+      t.y -= 40 * dt;
+      t.life -= dt;
+    }
+    this.floatingTexts = this.floatingTexts.filter(t => t.life > 0);
+
+    for (const r of this.tradeResults) {
+      r.life -= dt;
+      r.y -= 15 * dt;
+      // Scale springs in quickly
+      r.scale = Math.min(1, r.scale + dt * 5);
+    }
+    this.tradeResults = this.tradeResults.filter(r => r.life > 0);
+  },
+
+  applyShake() {
+    if (this.shakeAmount > 0.5) {
+      ctx.translate(
+        (Math.random() - 0.5) * this.shakeAmount,
+        (Math.random() - 0.5) * this.shakeAmount
+      );
+    }
+  },
+
+  drawParticles() {
+    for (const p of this.particles) {
+      const alpha = p.life / p.maxLife;
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    }
+    ctx.globalAlpha = 1;
+  },
+
+  drawFloatingTexts() {
+    for (const t of this.floatingTexts) {
+      const alpha = t.life / t.maxLife;
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = t.color;
+      ctx.font = 'bold 12px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(t.text, t.x, t.y);
+    }
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
+  },
+
+  drawTradeResults() {
+    for (const r of this.tradeResults) {
+      const alpha = Math.min(1, r.life / (r.maxLife * 0.3));
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.textAlign = 'center';
+      ctx.translate(W / 2, r.y);
+      ctx.scale(r.scale, r.scale);
+
+      // Shadow/outline for readability
+      ctx.font = 'bold 36px monospace';
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 4;
+      ctx.strokeText(r.text, 0, 0);
+
+      ctx.fillStyle = r.color;
+      ctx.fillText(r.text, 0, 0);
+
+      // Subtext
+      ctx.font = '14px monospace';
+      ctx.fillStyle = '#fff';
+      const subtext = r.amount >= 0 ? 'TRADE WON' : 'TRADE LOST';
+      ctx.fillText(subtext, 0, 24);
+
+      ctx.restore();
+      ctx.textAlign = 'left';
+      ctx.globalAlpha = 1;
+    }
+  },
+
+  drawFlash() {
+    if (this.flashAlpha > 0) {
+      ctx.globalAlpha = this.flashAlpha;
+      ctx.fillStyle = this.flashColor;
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalAlpha = 1;
+    }
+  }
+};
+
+// ---- DUCK MANAGER ----
+const Ducks = {
+  list: [],
+  spawnTimer: 0,
+
+  reset() {
+    this.list = [];
+    this.spawnTimer = 1;
+  },
+
+  update(dt) {
+    this.spawnTimer -= dt;
+    if (this.spawnTimer <= 0) {
+      this.spawn();
+      const volMod = 1 - Math.abs(Market.momentum) * 0.3;
+      this.spawnTimer = clamp(CONFIG.duckSpawnBase * volMod + Math.random() * 0.4, 0.4, 1.6);
+    }
+
+    for (const d of this.list) {
+      if (d.shot) {
+        // --- Falling animation for killed ducks (2nd shot landed) ---
+        d.x += d.vx * dt;
+        d.fallVy += 400 * dt;
+        d.y += d.fallVy * dt;
+        d.fallRotation += d.fallRotSpeed * dt;
+        if (Math.random() < 0.3) {
+          Effects.particles.push({
+            x: d.x + (Math.random() - 0.5) * 10, y: d.y,
+            vx: (Math.random() - 0.5) * 20, vy: -20 - Math.random() * 30,
+            life: 0.3 + Math.random() * 0.2, maxLife: 0.5,
+            color: '#888', size: 2 + Math.random() * 2,
+          });
+        }
+        if (d.y > H - 95) {
+          d.dead = true;
+          Effects.spawnParticles(d.x, H - 100, '#aa8855', 6);
+        }
+        continue;
+      }
+
+      // --- Tagged duck (position open, waiting for 2nd shot) ---
+      if (d.tagged) {
+        // Stun briefly
+        if (d.stunTimer > 0) {
+          d.stunTimer -= dt;
+          continue;
+        }
+        d.tradeElapsed += dt;
+        // Erratic movement: random direction changes
+        if (Math.random() < 0.04) {
+          d.vx += (Math.random() - 0.5) * 100;
+          d.vx = clamp(d.vx, -200, 200);
+        }
+        if (Math.random() < 0.04) {
+          d.y += (Math.random() - 0.5) * 30;
+        }
+        // Running PnL for display
+        d.runningPnl = d.type === 'long'
+          ? (Market.price - d.entryPrice) * 10
+          : (d.entryPrice - Market.price) * 10;
+      }
+
+      // --- Normal flying duck ---
+      // Horizontal
+      d.x += d.vx * dt;
+      // Wobble
+      d.wobblePhase += d.wobbleSpeed * dt;
+      d.y += Math.sin(d.wobblePhase) * d.wobbleAmp * dt;
+      d.y = clamp(d.y, 30, H - 140);
+      // Animation
+      d.frameTimer += dt;
+      if (d.frameTimer > 0.15) {
+        d.frame = (d.frame + 1) % 3;
+        d.frameTimer = 0;
+      }
+      // Signal ducks leave sparkle trail
+      if (d.isSignalDuck) {
+        d._trailTimer = (d._trailTimer || 0) + dt;
+        if (d._trailTimer > 0.08) {
+          d._trailTimer = 0;
+          const col = d.type === 'long' ? '#00ff44' : '#ff4444';
+          Effects.particles.push({
+            x: d.x + (Math.random() - 0.5) * 16,
+            y: d.y + (Math.random() - 0.5) * 10,
+            vx: (Math.random() - 0.5) * 30,
+            vy: (Math.random() - 0.5) * 30 - 15,
+            life: 0.4 + Math.random() * 0.3,
+            maxLife: 0.7,
+            color: col,
+            size: 2 + Math.random() * 2,
+          });
+        }
+      }
+      // Noise ducks occasionally jitter (visible stutter)
+      if (!d.isSignalDuck && Math.random() < 0.03) {
+        d.y += (Math.random() - 0.5) * 12;
+      }
+      // Off screen
+      if (d.x < -60 || d.x > W + 60) {
+        // Tagged duck escaping = auto-close trade at current price (usually bad)
+        if (d.tagged && !d.shot) {
+          const pnl = d.type === 'long'
+            ? Market.price - d.entryPrice
+            : d.entryPrice - Market.price;
+          const scaled = pnl * 10;
+          State.totalPnl += scaled;
+          State.tradesTotal++;
+          if (scaled > 0) { State.score += scaled; State.tradesWon++; }
+
+          const resultText = scaled >= 0
+            ? `+$${scaled.toFixed(1)}`
+            : `-$${Math.abs(scaled).toFixed(1)}`;
+          Effects.addTradeResult(
+            `ESCAPED ${resultText}`,
+            scaled >= 0 ? '#ffaa00' : '#ff2222',
+            scaled
+          );
+          if (scaled < 0) {
+            Effects.screenShake(0.3);
+            Audio.badTrade();
+          }
+          Trades.history.push({
+            type: d.type, entryPrice: d.entryPrice,
+            exitPrice: Market.price, pnl, scaledPnl: scaled,
+          });
+        }
+        d.dead = true;
+      }
+    }
+
+    this.list = this.list.filter(d => !d.dead);
+  },
+
+  spawn() {
+    const greenProb = 0.5 + Market.trend * 0.3;
+    const isGreen = Math.random() < greenProb;
+    const fromLeft = Math.random() > 0.5;
+    const y = 40 + Math.random() * (H - 220);
+    const baseSpeed = 80 + Math.random() * 60;
+    const speedMod = 1 + Math.abs(Market.momentum) * 0.5;
+
+    // Signal quality
+    let signalQuality;
+    const trendAlign = isGreen ? Market.trend : -Market.trend;
+    if (Market.currentPattern === 'signal' && trendAlign > 0.3) {
+      signalQuality = 0.8 + Math.random() * 0.2;
+    } else if (Market.currentPattern === 'fakeout') {
+      signalQuality = -0.5 - Math.random() * 0.5;
+    } else {
+      signalQuality = -0.2 + Math.random() * 0.4;
+    }
+
+    // Wobble: noisy ducks wobble more, signal ducks are smooth
+    const isSignalDuck = signalQuality > 0.6;
+    const wobbleAmp = isSignalDuck ? (3 + Math.random() * 5) : (15 + Math.random() * 25);
+    const wobbleSpeed = isSignalDuck ? (1 + Math.random()) : (3 + Math.random() * 4);
+
+    this.list.push({
+      x: fromLeft ? -40 : W + 40,
+      y,
+      vx: (fromLeft ? 1 : -1) * baseSpeed * speedMod,
+      vy: 0,
+      type: isGreen ? 'long' : 'short',
+      signalQuality,
+      isSignalDuck,
+      width: 36,
+      height: 30,
+      frameTimer: 0,
+      frame: 0,
+      wobblePhase: Math.random() * Math.PI * 2,
+      wobbleSpeed,
+      wobbleAmp,
+      dead: false,
+      facingLeft: !fromLeft,
+    });
+  },
+
+  draw() {
+    for (const d of this.list) {
+      const spriteKey = d.type === 'long'
+        ? (d.isSignalDuck ? 'greenDuckGlow' : 'greenDuck')
+        : (d.isSignalDuck ? 'redDuckGlow' : 'redDuck');
+      let frames = SpriteFactory.cache[spriteKey];
+      let img = frames[d.frame];
+      if (d.facingLeft) {
+        if (!d._flipped) {
+          d._flipped = frames.map(f => SpriteFactory.flip(f));
+        }
+        img = d._flipped[d.frame];
+      }
+
+      const drawX = d.x - img.width / 2;
+      const drawY = d.y - img.height / 2;
+
+      // Shot duck: draw tumbling
+      if (d.shot) {
+        ctx.save();
+        ctx.translate(d.x, d.y);
+        ctx.rotate(d.fallRotation);
+        ctx.globalAlpha = 0.8;
+        ctx.drawImage(img, -img.width / 2, -img.height / 2);
+        ctx.restore();
+        ctx.globalAlpha = 1;
+        continue;
+      }
+
+      // Tagged duck: show open position indicator
+      if (d.tagged) {
+        const tagColor = d.type === 'long' ? '#00ff44' : '#ff2222';
+        const pulse = 0.6 + 0.4 * Math.sin(State.totalTime * 8);
+
+        // Flashing border ring
+        ctx.save();
+        ctx.strokeStyle = tagColor;
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = pulse;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, 24, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+
+        // Draw duck normally
+        ctx.drawImage(img, drawX, drawY);
+
+        // Running PnL above duck
+        if (d.runningPnl !== undefined) {
+          const pnlCol = d.runningPnl >= 0 ? '#00ff44' : '#ff2222';
+          const pnlSign = d.runningPnl >= 0 ? '+' : '';
+          ctx.font = 'bold 11px monospace';
+          ctx.textAlign = 'center';
+          ctx.fillStyle = '#000';
+          ctx.fillText(`${pnlSign}$${d.runningPnl.toFixed(1)}`, d.x + 1, d.y - 19);
+          ctx.fillStyle = pnlCol;
+          ctx.fillText(`${pnlSign}$${d.runningPnl.toFixed(1)}`, d.x, d.y - 20);
+          // "OPEN" label below
+          ctx.font = '8px monospace';
+          ctx.fillStyle = tagColor;
+          ctx.globalAlpha = pulse;
+          ctx.fillText('OPEN', d.x, d.y + 22);
+          ctx.globalAlpha = 1;
+          ctx.textAlign = 'left';
+        }
+        continue;
+      }
+
+      if (d.isSignalDuck) {
+        // --- SIGNAL DUCK: very visible ---
+        const glowColor = d.type === 'long' ? '#00ff44' : '#ff2222';
+        const pulse = 0.6 + 0.4 * Math.sin(State.totalTime * 6);
+
+        // Outer pulsing glow ring
+        ctx.save();
+        ctx.shadowColor = glowColor;
+        ctx.shadowBlur = 18 + pulse * 10;
+        ctx.globalAlpha = 0.5 + pulse * 0.3;
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, 22 + pulse * 4, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0,0,0,0)';
+        ctx.strokeStyle = glowColor;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
+
+        // Draw sprite scaled up slightly (1.15x)
+        ctx.save();
+        ctx.shadowColor = glowColor;
+        ctx.shadowBlur = 14;
+        ctx.translate(d.x, d.y);
+        ctx.scale(1.15, 1.15);
+        ctx.drawImage(img, -img.width / 2, -img.height / 2);
+        ctx.restore();
+
+        // Small arrow indicator above duck
+        ctx.fillStyle = glowColor;
+        ctx.font = 'bold 14px monospace';
+        ctx.textAlign = 'center';
+        ctx.globalAlpha = 0.7 + pulse * 0.3;
+        ctx.fillText(d.type === 'long' ? '\u25B2' : '\u25BC', d.x, d.y - 22);
+        ctx.globalAlpha = 1;
+        ctx.textAlign = 'left';
+
+        // Trailing sparkle particles (spawn during update)
+      } else {
+        // --- NOISE / FAKEOUT DUCK: normal, slightly transparent on high wobble ---
+        const wobbleIntensity = clamp(d.wobbleAmp / 30, 0, 1);
+        ctx.globalAlpha = 0.7 + 0.3 * (1 - wobbleIntensity);
+        ctx.drawImage(img, drawX, drawY);
+        ctx.globalAlpha = 1;
+      }
+    }
+  },
+
+  hitTest(mx, my) {
+    for (let i = this.list.length - 1; i >= 0; i--) {
+      const d = this.list[i];
+      if (d.dead || d.shot) continue;
+      const hw = d.width / 2;
+      const hh = d.height / 2;
+      if (mx > d.x - hw && mx < d.x + hw && my > d.y - hh && my < d.y + hh) {
+        return d;
+      }
+    }
+    return null;
+  }
+};
+
+// ---- TRADE MANAGER ----
+const Trades = {
+  active: [],
+  history: [],
+
+  reset() {
+    this.active = [];
+    this.history = [];
+  },
+
+  // Trades are now managed on duck objects directly (2-shot system)
+  // TradeManager just tracks history and draws active trade list
+
+  update(dt) {
+    // Nothing to do — trades live on tagged ducks now
+  },
+
+  drawActive() {
+    // Show open positions from tagged ducks
+    const tagged = Ducks.list.filter(d => d.tagged && !d.shot);
+    if (tagged.length === 0) return;
+    let y = 55;
+    ctx.font = '10px monospace';
+    for (const d of tagged) {
+      const pnl = d.runningPnl || 0;
+      const col = pnl >= 0 ? '#0f0' : '#f00';
+      const sign = pnl >= 0 ? '+' : '';
+      const label = `${d.type.toUpperCase()} @ $${d.entryPrice.toFixed(2)} | ${sign}$${pnl.toFixed(1)}`;
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(5, y - 10, ctx.measureText(label).width + 8, 14);
+      ctx.fillStyle = col;
+      ctx.fillText(label, 9, y);
+      y += 16;
+    }
+  }
+};
+
+// ---- INPUT ----
+const Input = {
+  mx: W / 2,
+  my: H / 2,
+
+  init() {
+    canvas.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = W / rect.width;
+      const scaleY = H / rect.height;
+      this.mx = (e.clientX - rect.left) * scaleX;
+      this.my = (e.clientY - rect.top) * scaleY;
+    });
+
+    canvas.addEventListener('click', (e) => {
+      Audio.ensure();
+      if (State.phase === 'menu') {
+        startGame();
+        return;
+      }
+      if (State.phase === 'endscreen') {
+        startGame();
+        return;
+      }
+      if (State.phase === 'playing') {
+        this.handleShot();
+      }
+    });
+  },
+
+  handleShot() {
+    Audio.shoot();
+    Effects.gunRecoil = 8;
+    Effects.spawnParticles(W / 2, H - 110, '#ff0', 4);
+
+    const duck = Ducks.hitTest(this.mx, this.my);
+    if (duck) {
+      Audio.quack();
+      const color = duck.type === 'long' ? '#33ff33' : '#ff3333';
+
+      if (!duck.tagged) {
+        // ===== FIRST SHOT: Open position =====
+        duck.tagged = true;
+        duck.entryPrice = Market.price;
+        duck.tradeElapsed = 0;
+
+        // Visual: duck gets hit, brief stun, then flies erratically
+        duck.stunTimer = 0.3;
+        Effects.spawnParticles(duck.x, duck.y, color, 8);
+        Effects.spawnParticles(duck.x, duck.y, '#fff', 4);
+
+        // Make it fly more erratically after tagging
+        duck.wobbleAmp = 25 + Math.random() * 20;
+        duck.wobbleSpeed = 4 + Math.random() * 3;
+        // Speed up to make the close shot harder
+        duck.vx *= 1.3 + Math.random() * 0.5;
+        // Randomly change direction sometimes
+        if (Math.random() < 0.3) duck.vx *= -1;
+
+        State.shotsFired++;
+        State.resetMultiplier();
+
+        Effects.addFloatingText(
+          duck.x, duck.y - 20,
+          `OPEN ${duck.type.toUpperCase()} @ $${(Market.realPrice || Market.price).toFixed(2)}`,
+          color
+        );
+      } else {
+        // ===== SECOND SHOT: Close position =====
+        const pnl = duck.type === 'long'
+          ? Market.price - duck.entryPrice
+          : duck.entryPrice - Market.price;
+
+        // Kill the duck — tumbling fall
+        duck.shot = true;
+        duck.fallVy = -80;
+        duck.fallRotation = 0;
+        duck.fallRotSpeed = (Math.random() > 0.5 ? 1 : -1) * (8 + Math.random() * 4);
+        duck.vx *= 0.2;
+
+        Effects.spawnParticles(duck.x, duck.y, color, 12);
+        Effects.spawnParticles(duck.x, duck.y, '#fff', 6);
+
+        // Process trade result
+        const scaled = pnl * 10;
+        State.totalPnl += scaled;
+        State.tradesTotal++;
+        State.shotsFired++;
+        State.resetMultiplier();
+
+        const resultText = scaled >= 0
+          ? `+$${scaled.toFixed(1)}`
+          : `-$${Math.abs(scaled).toFixed(1)}`;
+
+        Effects.addFloatingText(
+          duck.x, duck.y - 20,
+          `CLOSE @ $${(Market.realPrice || Market.price).toFixed(2)} ${resultText}`,
+          scaled >= 0 ? '#00ff44' : '#ff2222'
+        );
+
+        if (scaled > 0) {
+          State.score += scaled;
+          State.tradesWon++;
+          Effects.flash('#00ff00');
+          Effects.addTradeResult(resultText, '#00ff44', scaled);
+          Effects.spawnParticles(duck.x, duck.y, '#ffff00', 10);
+          Audio.goodTrade();
+        } else {
+          Effects.screenShake(0.4 + Math.min(Math.abs(scaled) * 0.03, 0.4));
+          Effects.flash('#ff0000');
+          Effects.addTradeResult(resultText, '#ff2222', scaled);
+          Audio.badTrade();
+        }
+
+        Trades.history.push({
+          type: duck.type,
+          entryPrice: duck.entryPrice,
+          exitPrice: Market.price,
+          pnl,
+          scaledPnl: scaled,
+        });
+      }
+    } else {
+      // Miss
+      Effects.spawnParticles(this.mx, this.my, '#888', 3);
+      State.shotsFired++;
+      State.resetMultiplier();
+    }
+  },
+
+  drawCrosshair() {
+    const img = SpriteFactory.cache.crosshair;
+    ctx.drawImage(img, this.mx - 16, this.my - 16);
+  }
+};
+
+// ---- HUD ----
+const HUD = {
+  draw() {
+    const barY = H - 40;
+    // Bar background
+    ctx.fillStyle = 'rgba(0,0,0,0.8)';
+    ctx.fillRect(0, barY, W, 40);
+    ctx.strokeStyle = '#444';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, barY);
+    ctx.lineTo(W, barY);
+    ctx.stroke();
+
+    ctx.font = 'bold 14px monospace';
+    const y = barY + 25;
+
+    // Score
+    ctx.fillStyle = '#fff';
+    ctx.fillText('SCORE: ' + Math.floor(State.score), 15, y);
+
+    // PnL
+    const pnlColor = State.totalPnl >= 0 ? '#0f0' : '#f00';
+    const pnlSign = State.totalPnl >= 0 ? '+' : '';
+    ctx.fillStyle = pnlColor;
+    ctx.fillText(`PnL: ${pnlSign}$${State.totalPnl.toFixed(1)}`, 180, y);
+
+    // Multiplier
+    const multColor = State.disciplineMultiplier >= 3 ? '#ff0' : State.disciplineMultiplier >= 2 ? '#0ff' : '#fff';
+    ctx.fillStyle = multColor;
+    ctx.fillText(`MULTI: ${State.disciplineMultiplier.toFixed(1)}x`, 370, y);
+
+    // Timer
+    const secs = Math.max(0, Math.ceil(State.timeRemaining));
+    const min = Math.floor(secs / 60);
+    const sec = secs % 60;
+    const timeStr = `${min}:${sec.toString().padStart(2, '0')}`;
+    ctx.fillStyle = secs <= 10 ? '#f00' : '#fff';
+    ctx.fillText(`TIME: ${timeStr}`, 540, y);
+
+    // Shots
+    ctx.fillStyle = '#aaa';
+    ctx.fillText(`SHOTS: ${State.shotsFired}`, 670, y);
+
+    // Multiplier bar (visual)
+    const barW = 100;
+    const barH = 4;
+    const bx = 370;
+    const by = barY + 5;
+    ctx.fillStyle = '#333';
+    ctx.fillRect(bx, by, barW, barH);
+    const fill = (State.disciplineMultiplier - 1) / (CONFIG.maxMultiplier - 1);
+    ctx.fillStyle = multColor;
+    ctx.fillRect(bx, by, barW * fill, barH);
+  }
+};
+
+// ---- END SCREEN ----
+const EndScreen = {
+  fadeIn: 0,
+
+  getGrade() {
+    const s = State.score;
+    if (s >= 500) return { grade: 'S', title: 'Market Sniper', color: '#ff0' };
+    if (s >= 350) return { grade: 'A', title: 'Cool Under Pressure', color: '#0f0' };
+    if (s >= 200) return { grade: 'B', title: 'Steady Hands', color: '#0ff' };
+    if (s >= 100) return { grade: 'C', title: 'Trigger Discipline Needed', color: '#fa0' };
+    if (s >= 0)   return { grade: 'D', title: 'Paper Hands', color: '#f80' };
+    return { grade: 'F', title: 'Blown Account', color: '#f00' };
+  },
+
+  draw() {
+    this.fadeIn = Math.min(1, this.fadeIn + 0.02);
+    ctx.globalAlpha = this.fadeIn;
+
+    // Overlay
+    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+    ctx.fillRect(0, 0, W, H);
+
+    const cx = W / 2;
+    let y = 60;
+
+    // Title
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 28px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('ROUND OVER', cx, y);
+    y += 50;
+
+    // Stats box
+    const bw = 320;
+    const bh = 240;
+    const bx = cx - bw / 2;
+    ctx.strokeStyle = '#555';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(bx, y, bw, bh);
+
+    ctx.font = '14px monospace';
+    ctx.textAlign = 'left';
+    const lx = bx + 20;
+    let ly = y + 30;
+    const lineH = 28;
+
+    const stats = [
+      ['FINAL SCORE', Math.floor(State.score).toString(), '#fff'],
+      ['Total PnL', `${State.totalPnl >= 0 ? '+' : ''}$${State.totalPnl.toFixed(1)}`, State.totalPnl >= 0 ? '#0f0' : '#f00'],
+      ['Shots Fired', State.shotsFired.toString(), '#fff'],
+      ['Trades Won', `${State.tradesWon} / ${State.tradesTotal}`, '#fff'],
+      ['Win Rate', State.tradesTotal > 0 ? `${Math.round(State.tradesWon / State.tradesTotal * 100)}%` : 'N/A', '#fff'],
+      ['Best Multiplier', `${State.bestMultiplier.toFixed(1)}x`, '#ff0'],
+      ['Patience Bonus', `+${Math.max(0, Math.floor((60 - State.shotsFired * 3) * 5))}`, '#0ff'],
+    ];
+
+    // Apply final bonuses to score display
+    const patienceBonus = Math.max(0, (60 - State.shotsFired * 3) * 5);
+    const overtradePenalty = State.shotsFired > CONFIG.overtradingThreshold
+      ? (State.shotsFired - CONFIG.overtradingThreshold) * -15 : 0;
+
+    if (overtradePenalty < 0) {
+      stats.push(['Overtrading', overtradePenalty.toString(), '#f00']);
+    }
+
+    for (const [label, value, color] of stats) {
+      ctx.fillStyle = '#aaa';
+      ctx.fillText(label + ':', lx, ly);
+      ctx.fillStyle = color;
+      ctx.textAlign = 'right';
+      ctx.fillText(value, bx + bw - 20, ly);
+      ctx.textAlign = 'left';
+      ly += lineH;
+    }
+
+    // Grade
+    const g = this.getGrade();
+    y += bh + 30;
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 24px monospace';
+    ctx.fillStyle = g.color;
+    ctx.fillText(`GRADE: ${g.grade}`, cx, y);
+    y += 25;
+    ctx.font = '14px monospace';
+    ctx.fillStyle = g.color;
+    ctx.fillText(`"${g.title}"`, cx, y);
+
+    // Play again
+    y += 45;
+    ctx.font = 'bold 16px monospace';
+    ctx.fillStyle = '#fff';
+    const pulse = 0.6 + 0.4 * Math.sin(State.totalTime * 3);
+    ctx.globalAlpha = this.fadeIn * pulse;
+    ctx.fillText('[ CLICK TO PLAY AGAIN ]', cx, y);
+
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
+  }
+};
+
+// ---- MENU ----
+function drawMenu() {
+  // Duck Hunt style background
+  Scenery.update(0.016);
+  drawBackground();
+  drawGround();
+
+  const cx = W / 2;
+  let y = 70;
+
+  // Title with shadow for readability on bright background
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 44px monospace';
+  // Shadow
+  ctx.fillStyle = '#000';
+  ctx.fillText('DUCK', cx - 80 + 2, y + 2);
+  ctx.fillText('DRIFT', cx + 80 + 2, y + 2);
+  // Text
+  ctx.fillStyle = '#22cc22';
+  ctx.fillText('DUCK', cx - 80, y);
+  ctx.fillStyle = '#ee2222';
+  ctx.fillText('DRIFT', cx + 80, y);
+
+  y += 40;
+  ctx.font = 'bold 14px monospace';
+  ctx.fillStyle = '#000';
+  ctx.fillText('A Paper Trading Duck Hunt', cx + 1, y + 1);
+  ctx.fillStyle = '#fff';
+  ctx.fillText('A Paper Trading Duck Hunt', cx, y);
+
+  y += 50;
+  ctx.font = 'bold 12px monospace';
+  const lines = [
+    'Green ducks = LONG    Red ducks = SHORT',
+    '',
+    '1st SHOT opens a trade  |  2nd SHOT closes it',
+    'Tagged ducks fly wild - time your exit!',
+    '',
+    'GLOWING ducks = real signals',
+    'Normal ducks = traps & fakeouts',
+    '',
+    'The best move is often: DO NOTHING',
+  ];
+  for (const line of lines) {
+    ctx.fillStyle = '#000';
+    ctx.fillText(line, cx + 1, y + 1);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(line, cx, y);
+    y += 20;
+  }
+
+  y += 20;
+  ctx.font = 'bold 20px monospace';
+  const pulse = 0.5 + 0.5 * Math.sin(State.totalTime * 3);
+  ctx.fillStyle = '#000';
+  ctx.fillText('[ CLICK TO START ]', cx + 2, y + 2);
+  ctx.fillStyle = `rgba(255,255,255,${pulse})`;
+  ctx.fillText('[ CLICK TO START ]', cx, y);
+  ctx.textAlign = 'left';
+
+  // Decorative ducks flying
+  const f = Math.floor(State.totalTime * 4) % 3;
+  const gf = SpriteFactory.cache.greenDuck;
+  ctx.drawImage(gf[f], 80 + Math.sin(State.totalTime * 0.7) * 20, 50 + Math.sin(State.totalTime) * 15);
+  const rf = SpriteFactory.cache.redDuck;
+  ctx.drawImage(SpriteFactory.flip(rf[f]), W - 140 + Math.sin(State.totalTime * 0.5) * 20, 60 + Math.cos(State.totalTime * 0.8) * 15);
+}
+
+// ---- GROUND ----
+// ---- DUCK HUNT STYLE BACKGROUND ----
+function drawBackground() {
+  // Bright blue sky (NES Duck Hunt blue)
+  const grad = ctx.createLinearGradient(0, 0, 0, H - 100);
+  grad.addColorStop(0, '#5C94FC');   // NES sky blue top
+  grad.addColorStop(0.6, '#6CA6FC'); // lighter blue
+  grad.addColorStop(1, '#88BBFF');   // horizon blue
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Clouds
+  Scenery.drawClouds();
+
+  // Background tree (left side, like Duck Hunt)
+  const tree = SpriteFactory.cache.tree;
+  if (tree) ctx.drawImage(tree, 60, H - 100 - tree.height + 20);
+
+  // Bushes
+  const bush = SpriteFactory.cache.bush;
+  if (bush) {
+    ctx.drawImage(bush, W - 120, H - 100 - bush.height + 12);
+    ctx.drawImage(bush, W - 200, H - 100 - bush.height + 16);
+    ctx.drawImage(bush, 200, H - 100 - bush.height + 14);
+  }
+}
+
+function drawGround() {
+  const groundY = H - 100;
+
+  // Tall grass layer (multiple rows for depth, like Duck Hunt)
+  // Back grass row (darker)
+  ctx.fillStyle = '#1B8C1B';
+  for (let x = -5; x < W; x += 6) {
+    const h = 18 + Math.sin(x * 0.15 + 1) * 8 + Math.sin(x * 0.4) * 4;
+    ctx.fillRect(x, groundY - h, 4, h + 5);
+  }
+
+  // Middle grass row
+  ctx.fillStyle = '#22AA22';
+  for (let x = -3; x < W; x += 5) {
+    const h = 22 + Math.sin(x * 0.2 + 2) * 10 + Math.sin(x * 0.5 + 1) * 5;
+    ctx.fillRect(x, groundY - h, 3, h + 5);
+  }
+
+  // Front grass row (brightest, tallest)
+  ctx.fillStyle = '#33CC33';
+  for (let x = 0; x < W; x += 4) {
+    const h = 28 + Math.sin(x * 0.18) * 12 + Math.sin(x * 0.6 + 3) * 6;
+    ctx.fillRect(x, groundY - h, 3, h + 5);
+  }
+
+  // Highlight grass tips
+  ctx.fillStyle = '#55DD55';
+  for (let x = 1; x < W; x += 7) {
+    const h = 30 + Math.sin(x * 0.18) * 12 + Math.sin(x * 0.6 + 3) * 6;
+    ctx.fillRect(x, groundY - h, 2, 4);
+  }
+
+  // Grass base (solid green strip)
+  ctx.fillStyle = '#1B8C1B';
+  ctx.fillRect(0, groundY, W, 8);
+
+  // Earth/dirt layer (brown, like Duck Hunt)
+  ctx.fillStyle = '#8B6914';
+  ctx.fillRect(0, groundY + 8, W, 6);
+  ctx.fillStyle = '#6B4E0A';
+  ctx.fillRect(0, groundY + 14, W, 30);
+
+  // Dark earth bottom
+  ctx.fillStyle = '#4A3508';
+  ctx.fillRect(0, groundY + 28, W, 20);
+}
+
+// ---- GUN ----
+function drawGun() {
+  const gun = SpriteFactory.cache.gun;
+  const gx = W / 2 - gun.width / 2;
+  const gy = H - 100 - gun.height + 15 + Effects.gunRecoil;
+  ctx.drawImage(gun, gx, gy);
+}
+
+// ---- MAIN GAME FUNCTIONS ----
+function startGame() {
+  State.reset();
+  State.phase = 'playing';
+  Market.reset();
+  Ducks.reset();
+  Trades.reset();
+  Effects.reset();
+  EndScreen.fadeIn = 0;
+}
+
+function endRound() {
+  // Apply final bonuses
+  const patienceBonus = Math.max(0, (60 - State.shotsFired * 3) * 5);
+  const overtradePenalty = State.shotsFired > CONFIG.overtradingThreshold
+    ? (State.shotsFired - CONFIG.overtradingThreshold) * -15 : 0;
+  State.score += patienceBonus + overtradePenalty;
+
+  State.phase = 'endscreen';
+  Audio.roundEnd();
+}
+
+let lastTime = 0;
+
+function gameLoop(timestamp) {
+  const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+  lastTime = timestamp;
+  State.totalTime += dt;
+
+  ctx.clearRect(0, 0, W, H);
+
+  if (State.phase === 'menu') {
+    drawMenu();
+    Input.drawCrosshair();
+    requestAnimationFrame(gameLoop);
+    return;
+  }
+
+  if (State.phase === 'endscreen') {
+    // Draw game behind
+    drawGameFrame(dt, false);
+    EndScreen.draw();
+    Input.drawCrosshair();
+    requestAnimationFrame(gameLoop);
+    return;
+  }
+
+  // Playing
+  State.timeRemaining -= dt;
+  if (State.timeRemaining <= 0) {
+    State.timeRemaining = 0;
+    endRound();
+  }
+
+  drawGameFrame(dt, true);
+  Input.drawCrosshair();
+
+  requestAnimationFrame(gameLoop);
+}
+
+function drawGameFrame(dt, updateLogic) {
+  ctx.save();
+  Effects.applyShake();
+
+  if (updateLogic) {
+    Market.update(dt);
+    Ducks.update(dt);
+    Trades.update(dt);
+    State.updateMultiplier(dt);
+    Effects.update(dt);
+    Scenery.update(dt);
+  }
+
+  // Duck Hunt style background
+  drawBackground();
+
+  // Mini chart
+  Market.drawMiniChart();
+
+  // Ducks (fly in the sky area above grass)
+  Ducks.draw();
+
+  // Effects
+  Effects.drawParticles();
+  Effects.drawFloatingTexts();
+
+  // Ground (grass + earth on top of everything below)
+  drawGround();
+
+  // Gun (sits in the grass area)
+  drawGun();
+
+  ctx.restore();
+
+  // Flash overlay (after restore so no shake)
+  Effects.drawFlash();
+
+  // Trade result popups (above everything)
+  Effects.drawTradeResults();
+
+  // HUD
+  HUD.draw();
+
+  // Active trades
+  Trades.drawActive();
+}
+
+// ---- INIT ----
+SpriteFactory.init();
+Scenery.init();
+Input.init();
+
+// Resize handler
+function resize() {
+  const ratio = W / H;
+  let cw = window.innerWidth;
+  let ch = window.innerHeight;
+  if (cw / ch > ratio) {
+    cw = ch * ratio;
+  } else {
+    ch = cw / ratio;
+  }
+  canvas.style.width = cw + 'px';
+  canvas.style.height = ch + 'px';
+}
+window.addEventListener('resize', resize);
+resize();
+
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>

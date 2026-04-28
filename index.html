@@ -3,1692 +3,547 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Duck Drift</title>
+<title>BREAKUP - Binance Futures Setup Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Barlow+Condensed:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    background: #000;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    height: 100vh;
-    overflow: hidden;
-    font-family: monospace;
+  :root {
+    --bg:#0A0A0A;--bg1:#141414;--bg2:#1E1E1E;--bg3:#282828;
+    --border:#2A2A2A;--border2:#333333;--border3:#555555;
+    --text:#F0F0F0;--text2:#AAAAAA;--text3:#555555;
+    --accent:#EAE6DD;--accent-rgb:234,230,221;
+    --bull:#00C896;--bull-rgb:0,200,150;
+    --bear:#FF3B4E;--bear-rgb:255,59,78;
+    --alert-sw:#725fdd;--alert-tr:#969696;--alert-br:#e83040;--alert-en:#359c73;--alert-liq:#ed9b35;
+    --mono:'Inter',sans-serif;--sans:'Inter',sans-serif;--cond:'Barlow Condensed',sans-serif;
+    --radius:8px;--radius-lg:12px;
+    --header-h:56px;
+    --header-bg:rgba(10,10,10,0.85);
+    --page-bg:#0A0A0A;
   }
-  canvas {
-    image-rendering: pixelated;
-    image-rendering: crisp-edges;
-    max-width: 100vw;
-    max-height: 100vh;
-    cursor: none;
+  [data-theme="light"] {
+    --bg:#F8F8F6;--bg1:#FAFAF9;--bg2:#E8E8E6;--bg3:#D0D0CE;
+    --border:rgba(50,48,45,0.12);--border2:rgba(50,48,45,0.25);--border3:rgba(50,48,45,0.40);
+    --text:#0E0D0B;--text2:#2A2926;--text3:#6E6C66;
+    --accent:#2C2C2C;--accent-rgb:44,44,44;
+    --bull:#05A878;--bull-rgb:5,168,120;
+    --bear:#F02840;--bear-rgb:240,40,64;
+    --header-bg:rgba(248,248,246,0.88);
+    --page-bg:#F8F8F6;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;scroll-padding-top:var(--header-h);}
+  body{
+    background:var(--page-bg);color:var(--text);
+    font-family:var(--sans);font-size:13px;line-height:1.6;
+    font-variant-numeric:tabular-nums;
+    min-height:100vh;overflow-x:hidden;
+    transition:background 0.25s,color 0.25s;
+    -webkit-font-smoothing:antialiased;
+  }
+  body::before{
+    content:'';position:fixed;inset:0;pointer-events:none;z-index:0;opacity:0.03;
+    background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size:180px 180px;
+  }
+  button{box-shadow:none!important;transition:background 0.1s,color 0.1s,border-color 0.1s!important;}
+
+  /* NAV */
+  nav{
+    position:fixed;top:0;left:0;right:0;z-index:200;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:0 32px;height:var(--header-h);
+    background:var(--header-bg);backdrop-filter:blur(16px);
+    border-bottom:1px solid var(--border);transition:background 0.25s,border-color 0.25s;
+  }
+  .nav-logo{display:flex;align-items:center;}
+  .nav-logo svg{height:26px;width:auto;}
+  .nav-logo svg path,.nav-logo svg polygon{fill:var(--text);transition:fill 0.25s;}
+  .nav-right{display:flex;align-items:center;gap:8px;}
+  .theme-btn{
+    background:transparent;border:1px solid var(--border2);color:var(--text3);
+    font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:0.1em;
+    padding:5px 10px;border-radius:var(--radius);cursor:pointer;text-transform:uppercase;
+  }
+  .theme-btn:hover{border-color:var(--border3);color:var(--text2);}
+  .nav-cta{
+    background:var(--accent);color:var(--page-bg);border:none;
+    font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:0.12em;
+    padding:7px 16px;border-radius:var(--radius);cursor:pointer;text-transform:uppercase;
+    text-decoration:none;display:inline-flex;align-items:center;transition:opacity 0.15s;
+  }
+  .nav-cta:hover{opacity:0.82;}
+
+  /* HERO */
+  .hero{
+    position:relative;min-height:100vh;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;
+    padding:120px 40px 80px;text-align:center;overflow:hidden;z-index:1;
+  }
+  .hero-grid{display:none;}
+  .hero-glow{display:none;}
+  .hero-eyebrow{
+    font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:0.22em;
+    text-transform:uppercase;color:var(--bull);margin-bottom:28px;
+    display:flex;align-items:center;gap:10px;
+    opacity:0;animation:fadeUp 0.6s 0.1s ease both;
+  }
+  .hero-eyebrow::before,.hero-eyebrow::after{content:'';display:block;width:32px;height:1px;background:var(--bull);opacity:0.5;}
+  .hero-logo{margin-bottom:18px;opacity:0;animation:fadeUp 0.6s 0.2s ease both;}
+  .hero-logo svg{height:110px;width:auto;}
+  .hero-logo svg path,.hero-logo svg polygon{fill:var(--text);transition:fill 0.25s;}
+  .hero-sub{
+    font-family:var(--cond);font-size:16px;font-weight:600;letter-spacing:0.1em;
+    color:var(--text3);text-transform:uppercase;margin-bottom:36px;
+    opacity:0;animation:fadeUp 0.6s 0.3s ease both;
+  }
+  .hero-desc{
+    font-family:var(--sans);font-size:13px;color:var(--text2);line-height:1.8;
+    max-width:480px;margin-bottom:36px;opacity:0;animation:fadeUp 0.6s 0.4s ease both;
+  }
+  .hero-actions{display:flex;align-items:center;gap:10px;opacity:0;animation:fadeUp 0.6s 0.5s ease both;}
+  .btn-primary{
+    background:var(--accent);color:var(--page-bg);border:none;
+    font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:0.14em;
+    padding:10px 24px;border-radius:var(--radius);cursor:pointer;text-transform:uppercase;
+    text-decoration:none;display:inline-flex;align-items:center;gap:8px;transition:opacity 0.15s;
+  }
+  .btn-primary:hover{opacity:0.82;}
+  .btn-secondary{
+    background:transparent;color:var(--text2);border:1px solid var(--border2);
+    font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:0.12em;
+    padding:10px 20px;border-radius:var(--radius);cursor:pointer;text-transform:uppercase;
+    text-decoration:none;display:inline-flex;align-items:center;gap:8px;
+    transition:border-color 0.15s,color 0.15s;
+  }
+  .btn-secondary:hover{border-color:var(--border3);color:var(--text);}
+
+  .live-strip{
+    position:absolute;bottom:0;left:0;right:0;height:34px;border-top:1px solid var(--border);
+    display:flex;align-items:center;overflow:hidden;
+    opacity:0;animation:fadeUp 0.6s 0.7s ease both;
+  }
+  .live-strip-inner{display:flex;animation:ticker 28s linear infinite;white-space:nowrap;}
+  .live-strip-item{
+    font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:0.08em;
+    padding:0 18px;display:flex;align-items:center;gap:6px;
+    border-right:1px solid var(--border);height:34px;color:var(--text3);
+  }
+  .sym{color:var(--text2);}.bull{color:var(--bull);}.bear{color:var(--bear);}
+  .sw-c{color:var(--alert-sw);}.br-c{color:var(--alert-br);}.en-c{color:var(--alert-en);}
+  @keyframes ticker{0%{transform:translateX(0);}100%{transform:translateX(-50%);}}
+
+  /* LAYOUT */
+  .section{position:relative;z-index:1;padding:72px 40px;max-width:1100px;margin:0 auto;}
+  .section-label{
+    font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:0.22em;
+    text-transform:uppercase;color:var(--text3);margin-bottom:12px;
+    display:flex;align-items:center;gap:10px;
+  }
+  .section-label::after{content:'';flex:1;height:1px;background:var(--border2);}
+  .section-title{
+    font-family:var(--sans);font-size:18px;font-weight:600;letter-spacing:-0.01em;
+    line-height:1.4;color:var(--text);margin-bottom:36px;
+  }
+  .divider{height:1px;background:var(--border);position:relative;z-index:1;}
+  .divider-inner{height:1px;background:var(--border);position:relative;z-index:1;max-width:1100px;margin:0 auto;}
+
+  /* STAT BAR */
+  .stat-bar{
+    border:1px solid var(--border2);border-radius:var(--radius-lg);
+    display:grid;grid-template-columns:repeat(4,1fr);
+    background:var(--bg1);overflow:hidden;
+  }
+  .stat-item{padding:22px 20px;border-right:1px solid var(--border2);text-align:center;}
+  .stat-item:last-child{border-right:none;}
+  .stat-num{font-family:var(--sans);font-size:22px;font-weight:700;letter-spacing:-0.02em;color:var(--text);line-height:1;margin-bottom:5px;}
+  .stat-label{font-family:var(--mono);font-size:8px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:var(--text3);}
+
+  /* PIPELINE */
+  .pipeline-strip{
+    display:flex;align-items:center;gap:0;margin-bottom:10px;
+    border:1px solid var(--border2);border-radius:var(--radius);
+    overflow:hidden;width:fit-content;background:var(--bg1);
+  }
+  .pipe-step{
+    display:flex;flex-direction:column;align-items:center;
+    padding:11px 22px;border-right:1px solid var(--border2);
+    cursor:pointer;transition:background 0.15s;min-width:78px;
+  }
+  .pipe-step:last-child{border-right:none;}
+  .pipe-step:hover,.pipe-step.active{background:var(--bg2);}
+  .pipe-badge{
+    font-family:var(--mono);font-size:11px;font-weight:800;letter-spacing:0.1em;
+    padding:2px 10px;margin-bottom:4px;border:1px solid;border-radius:var(--radius);
+  }
+  .pipe-label{font-family:var(--mono);font-size:8px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:var(--text3);}
+
+  /* STEP CARDS */
+  .steps-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+  .step-card{
+    background:var(--bg1);border:1px solid var(--border);border-radius:var(--radius-lg);
+    padding:18px 16px;transition:background 0.15s,border-color 0.15s;
+  }
+  .step-card:hover{background:var(--bg2);border-color:var(--border2);}
+  .step-card-top{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+  .step-badge{font-family:var(--mono);font-size:11px;font-weight:800;letter-spacing:0.08em;padding:2px 10px;border:1px solid;border-radius:var(--radius);flex-shrink:0;}
+  .step-type{font-family:var(--mono);font-size:8px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;padding:2px 6px;border:1px solid var(--border2);border-radius:var(--radius);color:var(--text3);}
+  .step-title{font-family:var(--sans);font-size:12px;font-weight:600;letter-spacing:0;color:var(--text);margin-bottom:6px;}
+  .step-desc{font-family:var(--sans);font-size:11px;color:var(--text2);line-height:1.7;}
+
+  /* FEATURES */
+  .features-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+  .feature-card{
+    background:var(--bg1);border:1px solid var(--border);border-radius:var(--radius-lg);
+    padding:22px 20px;transition:background 0.15s,border-color 0.15s;
+  }
+  .feature-card:hover{background:var(--bg2);border-color:var(--border2);}
+  .feature-icon{
+    font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;
+    color:var(--text3);margin-bottom:12px;padding-bottom:11px;border-bottom:1px solid var(--border);
+    display:flex;align-items:center;justify-content:space-between;
+  }
+  .feature-dot{width:6px;height:6px;border-radius:50%;background:var(--bull);animation:pulse 2s ease-in-out infinite;}
+  .feature-title{font-family:var(--sans);font-size:12px;font-weight:600;letter-spacing:0;color:var(--text);margin-bottom:7px;line-height:1.3;}
+  .feature-desc{font-family:var(--sans);font-size:11px;color:var(--text2);line-height:1.75;}
+
+  /* ACCESS */
+  .access-wrap{position:relative;z-index:1;padding:0 40px 88px;max-width:1100px;margin:0 auto;}
+  .access-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .access-info{background:var(--bg1);border:1px solid var(--border);border-radius:var(--radius-lg);padding:36px 32px;}
+  .access-login{background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius-lg);padding:36px 32px;}
+  .access-title{font-family:var(--sans);font-size:18px;font-weight:600;letter-spacing:-0.01em;color:var(--text);margin-bottom:10px;line-height:1.4;}
+  .access-desc{font-family:var(--sans);font-size:12px;color:var(--text2);line-height:1.75;margin-bottom:24px;}
+  .access-bullets{list-style:none;display:flex;flex-direction:column;gap:8px;}
+  .access-bullets li{font-family:var(--mono);font-size:10px;color:var(--text2);display:flex;align-items:flex-start;gap:10px;letter-spacing:0.04em;}
+  .access-bullets li::before{content:'→';color:var(--bull);flex-shrink:0;margin-top:1px;}
+  .login-label{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:var(--text3);margin-bottom:22px;display:flex;align-items:center;gap:8px;}
+  .login-label::before{content:'';width:4px;height:4px;border-radius:50%;background:var(--bull);animation:pulse 1.5s ease-in-out infinite;}
+  .form-group{margin-bottom:13px;}
+  .form-label{display:block;font-family:var(--mono);font-size:8px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:var(--text3);margin-bottom:6px;}
+  .form-input{
+    width:100%;background:var(--bg2);border:1px solid var(--border2);color:var(--text);
+    font-family:var(--mono);font-size:12px;padding:9px 12px;border-radius:var(--radius);
+    outline:none;transition:border-color 0.15s;-webkit-appearance:none;
+  }
+  .form-input:focus{border-color:var(--border3);}
+  .form-input::placeholder{color:var(--text3);}
+  .form-submit{
+    width:100%;background:var(--accent);color:var(--page-bg);border:none;
+    font-family:var(--mono);font-size:10px;font-weight:800;letter-spacing:0.18em;
+    text-transform:uppercase;padding:11px;border-radius:var(--radius);cursor:pointer;margin-top:6px;transition:opacity 0.15s;
+  }
+  .form-submit:hover{opacity:0.82;}
+  .form-error{font-family:var(--mono);font-size:9px;color:var(--bear);letter-spacing:0.08em;margin-top:8px;display:none;}
+  .form-error.show{display:block;}
+  .form-note{font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:0.06em;margin-top:13px;line-height:1.6;}
+
+  /* FOOTER */
+  footer{position:relative;z-index:1;border-top:1px solid var(--border);padding:18px 32px;display:flex;align-items:center;justify-content:space-between;}
+  .footer-left{display:flex;align-items:center;gap:12px;}
+  .footer-left svg{height:13px;width:auto;opacity:0.28;}
+  .footer-left svg path,.footer-left svg polygon{fill:var(--text);}
+  .footer-copy{font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:0.08em;}
+  .footer-right{font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:0.08em;display:flex;align-items:center;gap:6px;}
+  .feed-dot{width:5px;height:5px;border-radius:50%;background:var(--bull);animation:pulse 2s ease-in-out infinite;}
+
+  @keyframes fadeUp{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:translateY(0);}}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.3;}}
+  .reveal{opacity:0;transform:translateY(16px);transition:opacity 0.55s ease,transform 0.55s ease;}
+  .reveal.visible{opacity:1;transform:translateY(0);}
+
+  @media(max-width:768px){
+    nav{padding:0 16px;}
+    .hero{padding:100px 20px 60px;}
+    .hero-logo svg{height:34px;}
+    .section{padding:52px 20px;}
+    .section-title{font-size:30px;}
+    .steps-grid{grid-template-columns:1fr 1fr;}
+    .features-grid{grid-template-columns:1fr 1fr;}
+    .stat-bar{grid-template-columns:repeat(2,1fr);}
+    .access-wrap{padding:0 20px 56px;}
+    .access-grid{grid-template-columns:1fr;}
+    .access-info,.access-login{padding:26px 20px;}
+    footer{padding:14px 20px;flex-direction:column;gap:10px;text-align:center;}
+  }
+  @media(max-width:480px){
+    .steps-grid{grid-template-columns:1fr;}
+    .features-grid{grid-template-columns:1fr;}
+    .stat-bar{grid-template-columns:1fr 1fr;}
+    .hero-actions{flex-direction:column;}
+    .btn-primary,.btn-secondary{width:100%;justify-content:center;}
+    .pipeline-strip{width:100%;}
+    .pipe-step{flex:1;min-width:unset;padding:10px 6px;}
   }
 </style>
 </head>
 <body>
-<canvas id="game"></canvas>
+
+<nav>
+  <div class="nav-logo">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4497.92 4497.92">
+      <path d="M3198.26 1227.2l1219.69 0 0 2025.27 -1123.06 1113.88 -2653.93 0 1799.08 -1815.84 8.14 701.96 750.08 0 0 -2025.27zm-5.6 -5.91l0 -1063.26 -2025.27 0 -1113.88 1123.02 0 2497.55 1815.78 -1799.12 -701.9 -8.11 0 -750.08 2025.27 0z"/>
+    </svg>
+  </div>
+  <div class="nav-right">
+    <button class="theme-btn" onclick="toggleTheme()" id="theme-btn">☀ Light</button>
+    <a href="#access" class="nav-cta">Request Access →</a>
+  </div>
+</nav>
+
+<section class="hero">
+  <div class="hero-grid"></div>
+  <div class="hero-glow"></div>
+  <div class="hero-eyebrow">Binance Futures · USDT-M Perpetuals · Live</div>
+  <div class="hero-logo">
+    <svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" viewBox="0 0 19341.04 10874.38">
+      <polygon points="3650.2,4097.39 4869.89,4097.39 4869.89,6122.66 3746.83,7236.54 1092.9,7236.54 2891.98,5420.7 2900.12,6122.66 3650.2,6122.66"/>
+      <polygon points="3644.6,4091.48 3644.6,3028.22 1619.33,3028.22 505.45,4151.24 505.45,6648.79 2321.23,4849.67 1619.33,4841.56 1619.33,4091.48"/>
+      <path d="M7266.28 4264.48c217.74,-100.26 335.21,-273.05 335.21,-511.53 0,-449.3 -252.3,-680.86 -846.73,-680.86l-1133.62 0 0 2419.28 1220.05 0c480.34,0 846.73,-148.59 846.73,-684.32 0,-262.68 -148.65,-452.76 -421.64,-542.57l0 0zm-1095.58 -711.98l501.09 0c262.67,0 387.13,72.6 387.13,259.22 0,172.79 -134.83,255.77 -387.13,255.77l-501.09 0 0 -514.99zm584.06 1458.45l-584.06 0 0 -514.91 584.06 0c255.76,0 390.52,82.9 390.52,255.69 0,186.69 -124.39,259.22 -390.52,259.22l0 0zm1137 -787.96l0 1268.38 521.9 0 0 -981.5c0,-269.59 48.4,-394.05 224.65,-394.05 72.6,0 165.87,20.74 283.42,58.77l0 -463.13c-172.86,-44.94 -321.45,-65.61 -445.84,-65.61 -400.9,0 -584.13,207.36 -584.13,577.14zm2854.82 376.7c-48.4,-656.66 -414.73,-964.22 -884.77,-964.22 -480.41,0 -839.82,328.3 -839.82,946.93 0,673.95 452.75,953.91 895.14,953.91 397.43,0 791.42,-228.11 829.45,-597.89l-525.36 0c-10.37,62.16 -148.59,141.68 -293.79,141.68 -141.68,0 -293.73,-72.6 -349.04,-290.34l1168.19 0 0 -190.07zm-1171.65 -224.65c41.49,-176.25 141.68,-276.51 297.25,-276.51 158.96,0 259.22,86.43 311.01,276.51l-608.26 0zm2270.62 -736.11c-473.5,-6.91 -946.93,293.72 -946.93,964.21 0,542.65 338.67,926.26 781.05,926.26 210.82,0 400.9,-65.69 539.19,-203.91l0 165.88 532.2 0 0 -1026.44c0,-525.36 -445.84,-819.08 -905.51,-826zm373.31 995.33c-3.46,293.79 -190.15,435.47 -376.77,435.47 -203.9,0 -411.27,-162.42 -411.27,-466.59 0,-335.21 186.62,-494.24 376.7,-494.24 200.52,0 404.42,172.86 411.34,497.7l0 27.66zm2135.85 -129.58c186.62,-187.24 328.37,-436.09 328.37,-834.7l-508.07 0c0,502.33 -338.74,650.92 -639.37,879.58l0 -1691.75 -532.27 221.19 0 2412.37 480.41 0c0,-339.29 238.47,-505.72 504.61,-692.34 259.22,55.24 324.84,279.89 324.84,692.34l473.5 0c0,-464.3 -169.34,-831.18 -432.02,-986.69zm1835.22 -834.7l0 967.74c-6.91,231.56 -110.63,421.64 -366.39,421.64 -245.32,0 -345.58,-186.62 -352.5,-407.82l0 -981.56 -532.27 0 0 1081.75c0,487.33 366.4,774.21 884.77,774.21 518.44,0 898.59,-304.17 898.59,-791.42l0 -1064.54 -532.2 0zm2605.9 936.62c0,-663.57 -466.58,-964.21 -929.71,-964.21 -463.13,0 -922.79,297.18 -922.79,829.45l0 1859.35 532.27 -224.65 0 -784.51c138.21,134.76 328.36,193.54 539.18,193.54 442.31,0 781.05,-266.14 781.05,-905.51l0 -3.46zm-532.27 3.46c0,304.16 -207.36,463.12 -407.81,463.12 -190.08,0 -373.24,-138.21 -380.15,-432.01l0 -31.11c6.91,-321.38 214.27,-494.24 414.72,-494.24 190.08,0 373.24,155.57 373.24,490.78l0 3.46z"/>
+      <path d="M6119.05 7116.94c346.34,0 484.56,-159.31 484.56,-336.59 0,-149.56 -87.81,-268.28 -331.75,-307.35l-305.69 -48.74c-91.06,-16.25 -126.81,-39 -126.81,-102.47 0,-69.91 53.66,-104.07 229.28,-104.07 216.28,0 269.94,43.91 269.94,147.97l0 22.82 245.53 0 0 -9.82c0,-229.21 -156.13,-383.75 -491.06,-383.75 -365.91,0 -499.22,172.38 -499.22,336.59 0,177.29 115.47,274.85 310.6,305.76l305.68 43.91c112.15,19.49 149.56,43.9 149.56,110.56 0,73.15 -45.5,102.4 -240.62,102.4 -221.12,0 -271.53,-40.66 -271.53,-141.47l0 -29.25 -243.94 0 0 9.75c0,253.69 185.38,383.75 515.47,383.75zm1944.05 -16.25l0 -219.53 -678.1 0 0 -219.53 653.69 0 0 -217.87 -653.69 0 0 -213.04 678.1 0 0 -219.46 -921.97 0 0 1089.43 921.97 0zm792.73 0l0 -525.22 -9.74 -200.03 16.24 0 138.22 204.94 401.66 520.31 260.19 0 0 -1089.43 -243.94 0 0 525.22 11.41 219.46 -17.91 0 -149.63 -229.28 -390.25 -515.4 -260.12 0 0 1089.43 243.87 0zm1981.46 0l0 -869.97 404.84 0 0 -219.46 -1053.68 0 0 219.46 404.9 0 0 869.97 243.94 0zm1174.83 0l0 -1089.43 -243.87 0 0 1089.43 243.87 0zm810.64 0l0 -525.22 -9.75 -200.03 16.25 0 138.22 204.94 401.66 520.31 260.19 0 0 -1089.43 -243.94 0 0 525.22 11.4 219.46 -17.9 0 -149.63 -229.28 -390.25 -515.4 -260.12 0 0 1089.43 243.87 0zm2296.89 0l0 -219.53 -678.09 0 0 -219.53 653.69 0 0 -217.87 -653.69 0 0 -213.04 678.09 0 0 -219.46 -921.96 0 0 1089.43 921.96 0zm1441.59 0l0 -219.53 -648.85 0 0 -869.9 -243.87 0 0 1089.43 892.72 0z"/>
+    </svg>
+  </div>
+  <div class="hero-sub">Automated Futures Setup Scanner</div>
+  <p class="hero-desc">BREAKUP monitors your Binance Futures watchlist around the clock. Draw your levels - it handles the rest. A fixed four-step pipeline fires alerts the moment conditions align. No noise. No manual watching.</p>
+  <div class="hero-actions">
+    <a href="#access" class="btn-primary">Get Access →</a>
+    <a href="#pipeline" class="btn-secondary">How It Works</a>
+  </div>
+  <div class="live-strip">
+    <div class="live-strip-inner">
+      <div class="live-strip-item"><span class="sym">BTCUSDT</span><span class="bull">+2.14%</span><span class="sw-c">Sw</span></div>
+      <div class="live-strip-item"><span class="sym">ETHUSDT</span><span class="bear">-0.87%</span><span class="br-c">Br</span></div>
+      <div class="live-strip-item"><span class="sym">SOLUSDT</span><span class="bull">+4.32%</span><span class="en-c">En</span></div>
+      <div class="live-strip-item"><span class="sym">BNBUSDT</span><span class="bull">+1.05%</span></div>
+      <div class="live-strip-item"><span class="sym">AVAXUSDT</span><span class="bear">-1.23%</span><span class="sw-c">Sw</span></div>
+      <div class="live-strip-item"><span class="sym">LINKUSDT</span><span class="bull">+3.71%</span><span class="br-c">Br</span></div>
+      <div class="live-strip-item"><span class="sym">DOTUSDT</span><span class="bear">-0.44%</span></div>
+      <div class="live-strip-item"><span class="sym">AAVEUSDT</span><span class="bull">+6.18%</span><span class="en-c">En</span></div>
+      <div class="live-strip-item"><span class="sym">NEARUSDT</span><span class="bull">+2.89%</span><span class="sw-c">Sw</span></div>
+      <div class="live-strip-item"><span class="sym">OPUSDT</span><span class="bear">-2.10%</span></div>
+      <div class="live-strip-item"><span class="sym">BTCUSDT</span><span class="bull">+2.14%</span><span class="sw-c">Sw</span></div>
+      <div class="live-strip-item"><span class="sym">ETHUSDT</span><span class="bear">-0.87%</span><span class="br-c">Br</span></div>
+      <div class="live-strip-item"><span class="sym">SOLUSDT</span><span class="bull">+4.32%</span><span class="en-c">En</span></div>
+      <div class="live-strip-item"><span class="sym">BNBUSDT</span><span class="bull">+1.05%</span></div>
+      <div class="live-strip-item"><span class="sym">AVAXUSDT</span><span class="bear">-1.23%</span><span class="sw-c">Sw</span></div>
+      <div class="live-strip-item"><span class="sym">LINKUSDT</span><span class="bull">+3.71%</span><span class="br-c">Br</span></div>
+      <div class="live-strip-item"><span class="sym">DOTUSDT</span><span class="bear">-0.44%</span></div>
+      <div class="live-strip-item"><span class="sym">AAVEUSDT</span><span class="bull">+6.18%</span><span class="en-c">En</span></div>
+      <div class="live-strip-item"><span class="sym">NEARUSDT</span><span class="bull">+2.89%</span><span class="sw-c">Sw</span></div>
+      <div class="live-strip-item"><span class="sym">OPUSDT</span><span class="bear">-2.10%</span></div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<div style="position:relative;z-index:1;max-width:1100px;margin:0 auto;padding:40px 40px 0;">
+  <div class="stat-bar reveal">
+    <div class="stat-item"><div class="stat-num" style="color:var(--bull)">4</div><div class="stat-label">Pipeline Steps</div></div>
+    <div class="stat-item"><div class="stat-num">24/7</div><div class="stat-label">Live Monitoring</div></div>
+    <div class="stat-item"><div class="stat-num">6</div><div class="stat-label">Timeframes</div></div>
+    <div class="stat-item"><div class="stat-num" style="color:var(--alert-sw)">∞</div><div class="stat-label">Watchlist Size</div></div>
+  </div>
+</div>
+
+<section class="section" id="pipeline">
+  <div class="section-label reveal">The Setup</div>
+  <div class="section-title reveal">Sw · Tr · Br · En<br>Four steps. Fully gated.</div>
+
+  <div class="pipeline-strip reveal" id="pipe-demo">
+    <div class="pipe-step active" data-step="0" onclick="setStep(0)">
+      <div class="pipe-badge" style="color:#fff;background:var(--alert-sw);border-color:var(--alert-sw)">Sw</div>
+      <div class="pipe-label">Sweep</div>
+    </div>
+    <div class="pipe-step" data-step="1" onclick="setStep(1)" style="opacity:0.4">
+      <div class="pipe-badge" style="color:var(--alert-tr);border-color:var(--alert-tr)">Tr</div>
+      <div class="pipe-label">Trendline</div>
+    </div>
+    <div class="pipe-step" data-step="2" onclick="setStep(2)" style="opacity:0.4">
+      <div class="pipe-badge" style="color:#fff;background:var(--alert-br);border-color:var(--alert-br)">Br</div>
+      <div class="pipe-label">Break</div>
+    </div>
+    <div class="pipe-step" data-step="3" onclick="setStep(3)" style="opacity:0.4">
+      <div class="pipe-badge" style="color:#fff;background:var(--alert-en);border-color:var(--alert-en)">En</div>
+      <div class="pipe-label">Entry</div>
+    </div>
+  </div>
+
+  <div class="steps-grid reveal">
+    <div class="step-card">
+      <div class="step-card-top">
+        <div class="step-badge" style="color:#fff;background:var(--alert-sw);border-color:var(--alert-sw)">Sw</div>
+        <div class="step-type">Auto</div>
+      </div>
+      <div class="step-title">Sweep</div>
+      <div class="step-desc">Price interacts with a marked zone while a momentum condition is satisfied. Detected automatically on candle close. Works on both bullish and bearish configurations. Fires once per cycle.</div>
+    </div>
+    <div class="step-card">
+      <div class="step-card-top">
+        <div class="step-badge" style="color:var(--alert-tr);border-color:var(--alert-tr)">Tr</div>
+        <div class="step-type">Manual</div>
+      </div>
+      <div class="step-title">Trendline</div>
+      <div class="step-desc">Draw structure directly on the chart to mark the prevailing trend of the move. Arm the detector with one click. Only becomes available after Sw fires - keeps the pipeline in sequence.</div>
+    </div>
+    <div class="step-card">
+      <div class="step-card-top">
+        <div class="step-badge" style="color:#fff;background:var(--alert-br);border-color:var(--alert-br)">Br</div>
+        <div class="step-type">Auto</div>
+      </div>
+      <div class="step-title">Structure Break</div>
+      <div class="step-desc">A candle closes on the other side of the drawn structure on the selected timeframe. Candle-close confirmed - no wick noise. Requires both prior steps to be complete before it can arm.</div>
+    </div>
+    <div class="step-card">
+      <div class="step-card-top">
+        <div class="step-badge" style="color:#fff;background:var(--alert-en);border-color:var(--alert-en)">En</div>
+        <div class="step-type">Auto</div>
+      </div>
+      <div class="step-title">Entry</div>
+      <div class="step-desc">A momentum indicator crosses a key threshold and confirms on the following close. Two-candle confirmation eliminates noise. If the condition was already satisfied at Br, it waits for a fresh signal.</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider-inner"></div>
+
+<section class="section">
+  <div class="section-label reveal">What's Inside</div>
+  <div class="section-title reveal">Everything you need.<br>Nothing you don't.</div>
+  <div class="features-grid reveal">
+    <div class="feature-card">
+      <div class="feature-icon">RSI Heatmap<div class="feature-dot"></div></div>
+      <div class="feature-title">Multi-TF RSI Heatmap</div>
+      <div class="feature-desc">See momentum values across your entire watchlist at a glance across multiple timeframes simultaneously. Spot clusters before they move. Color-coded from oversold to overbought.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">Trend Scanner<div class="feature-dot" style="background:var(--alert-sw);"></div></div>
+      <div class="feature-title">Live Trend Scanner</div>
+      <div class="feature-desc">Auto-scans your watchlist for trend structure on every higher timeframe close. Classifies each coin and flags notable tickers. Updates automatically - no manual refresh needed.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">Liquidations<div class="feature-dot" style="background:var(--alert-liq);"></div></div>
+      <div class="feature-title">Liquidation Feed</div>
+      <div class="feature-desc">Real-time liquidation stream from Binance. Fires an alert and sound when a significant event hits inside a drawn zone. Visual flow display updates in real time as data arrives.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">Alerts<div class="feature-dot" style="background:var(--alert-br);"></div></div>
+      <div class="feature-title">Discord &amp; Telegram</div>
+      <div class="feature-desc">Every pipeline alert can push to your Discord webhook or Telegram bot with a chart snapshot attached. Configure per alert type. Stay notified without watching the screen.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">Charts<div class="feature-dot" style="background:var(--accent);opacity:0.6;"></div></div>
+      <div class="feature-title">Live Candlestick Charts</div>
+      <div class="feature-desc">Each ticker card has its own live chart fed by WebSocket. All drawn zones, lines, and indicators render live. Expandable card with a full interactive drawing toolset.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">Feed Status<div class="feature-dot"></div></div>
+      <div class="feature-title">24/7 Watchdog</div>
+      <div class="feature-desc">Independent keepalive monitoring checks all feeds on a short interval. Dead streams reconnect automatically. A status pill in the header shows connection state at all times.</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<div class="access-wrap" id="access">
+  <div style="padding:56px 0 28px">
+    <div class="section-label reveal">Access</div>
+    <div class="section-title reveal" style="margin-bottom:0">Request access<br>or sign in.</div>
+  </div>
+  <div class="access-grid reveal">
+    <div class="access-info">
+      <div class="access-title">Invite<br>Only</div>
+      <p class="access-desc">BREAKUP is currently available to a limited group. Access is granted per user - your credentials are yours. Request access below or sign in if you already have an account.</p>
+      <ul class="access-bullets">
+        <li>Runs entirely in your browser - no install required</li>
+        <li>Your watchlist and levels are stored locally</li>
+        <li>All data streams directly from Binance via WebSocket</li>
+        <li>Works on desktop and tablet</li>
+        <li>Light and dark theme included</li>
+      </ul>
+    </div>
+    <div class="access-login">
+      <div class="login-label">Secure Login</div>
+      <div class="form-group">
+        <label class="form-label" for="username">Username</label>
+        <input class="form-input" type="text" id="username" placeholder="your username" autocomplete="username">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="password">Password</label>
+        <input class="form-input" type="password" id="password" placeholder="••••••••" autocomplete="current-password">
+      </div>
+      <button class="form-submit" id="submit-btn" onclick="handleLogin()">Sign In →</button>
+      <div class="form-error" id="login-error">Invalid credentials. Please try again.</div>
+      <p class="form-note">Don't have access? Contact the admin to request an invite.<br>Credentials are per-user and can be revoked at any time.</p>
+    </div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<footer>
+  <div class="footer-left">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4497.92 4497.92">
+      <path d="M3198.26 1227.2l1219.69 0 0 2025.27 -1123.06 1113.88 -2653.93 0 1799.08 -1815.84 8.14 701.96 750.08 0 0 -2025.27zm-5.6 -5.91l0 -1063.26 -2025.27 0 -1113.88 1123.02 0 2497.55 1815.78 -1799.12 -701.9 -8.11 0 -750.08 2025.27 0z"/>
+    </svg>
+    <span class="footer-copy">© 2026 BREAKUP. All rights reserved.</span>
+  </div>
+  <div class="footer-right">
+    <div class="feed-dot"></div>
+    Binance Futures · USDT-M Perpetuals
+  </div>
+</footer>
+
 <script>
-// ============================================================
-// DUCK DRIFT — A Paper Trading Duck Hunt
-// ============================================================
+  var _theme = localStorage.getItem('lp_theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', _theme);
+  document.getElementById('theme-btn').textContent = _theme === 'dark' ? '☀ Light' : '☾ Dark';
 
-const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
-
-// Logical resolution
-const W = 800;
-const H = 500;
-canvas.width = W;
-canvas.height = H;
-ctx.imageSmoothingEnabled = false;
-
-// ---- CONFIG ----
-const CONFIG = {
-  roundDuration: 60,
-  signalFrequency: 0.10,
-  fakeoutFrequency: 0.15,
-  tradeHoldTime: [5, 8],
-  passivePointRate: 0.5,
-  overtradingThreshold: 10,
-  maxMultiplier: 5.0,
-  maxConcurrentTrades: 3,
-  duckSpawnBase: 0.9,
-};
-
-// ---- UTILITY ----
-function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
-function lerp(a, b, t) { return a + (b - a) * t; }
-function randRange(a, b) { return a + Math.random() * (b - a); }
-
-// ---- AUDIO (Web Audio oscillator sounds) ----
-const Audio = {
-  ctx: null,
-  init() {
-    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-  },
-  ensure() {
-    if (!this.ctx) this.init();
-    if (this.ctx.state === 'suspended') this.ctx.resume();
-  },
-  play(freq, type, duration, vol) {
-    this.ensure();
-    const o = this.ctx.createOscillator();
-    const g = this.ctx.createGain();
-    o.type = type;
-    o.frequency.value = freq;
-    g.gain.value = vol || 0.15;
-    g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
-    o.connect(g);
-    g.connect(this.ctx.destination);
-    o.start();
-    o.stop(this.ctx.currentTime + duration);
-  },
-  shoot() { this.play(800, 'square', 0.08, 0.12); this.play(200, 'noise' in OscillatorNode.prototype ? 'sawtooth' : 'sawtooth', 0.1, 0.1); },
-  quack() { this.play(280, 'square', 0.06, 0.1); setTimeout(() => this.play(320, 'square', 0.08, 0.1), 70); },
-  goodTrade() { this.play(523, 'square', 0.1, 0.1); setTimeout(() => this.play(659, 'square', 0.1, 0.1), 100); setTimeout(() => this.play(784, 'square', 0.15, 0.1), 200); },
-  badTrade() { this.play(200, 'sawtooth', 0.2, 0.12); setTimeout(() => this.play(150, 'sawtooth', 0.3, 0.12), 100); },
-  roundEnd() { this.play(440, 'square', 0.15, 0.1); setTimeout(() => this.play(349, 'square', 0.15, 0.1), 150); setTimeout(() => this.play(261, 'square', 0.3, 0.1), 300); },
-};
-
-// ---- SPRITE FACTORY ----
-const SpriteFactory = {
-  cache: {},
-
-  init() {
-    // NES Duck Hunt style ducks - more detailed, colorful
-    // Green duck: teal body, dark green wings, orange beak, white chest
-    this.cache.greenDuck = this.createNESDuck(
-      '#00aa44', '#006622', '#228833', '#ff8800', '#ffffff', '#000000', '#55cc66'
-    );
-    // Red duck: dark red body, brown wings, orange beak
-    this.cache.redDuck = this.createNESDuck(
-      '#cc2222', '#881111', '#aa3333', '#ff8800', '#ffffff', '#000000', '#ee4444'
-    );
-    // Glow variants (signal ducks) - brighter, more saturated
-    this.cache.greenDuckGlow = this.createNESDuck(
-      '#00dd55', '#00aa33', '#33cc55', '#ffaa00', '#ffffff', '#111111', '#66ff88'
-    );
-    this.cache.redDuckGlow = this.createNESDuck(
-      '#ff3333', '#cc1111', '#ee4444', '#ffaa00', '#ffffff', '#111111', '#ff6666'
-    );
-    this.cache.gun = this.createGun();
-    this.cache.crosshair = this.createCrosshair();
-    this.cache.tree = this.createTree();
-    this.cache.bush = this.createBush();
-  },
-
-  renderPixels(rows, palette, scale) {
-    const h = rows.length;
-    const w = rows[0].length;
-    const off = document.createElement('canvas');
-    off.width = w * scale;
-    off.height = h * scale;
-    const c = off.getContext('2d');
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        const ch = rows[y][x];
-        if (ch === '.') continue;
-        c.fillStyle = palette[ch] || '#f0f';
-        c.fillRect(x * scale, y * scale, scale, scale);
-      }
-    }
-    return off;
-  },
-
-  createNESDuck(body, wing, belly, beak, eye, outline, highlight) {
-    const p = { '.': null, '1': body, '2': wing, '3': beak, '4': eye, '5': outline, '6': belly, '7': highlight };
-    const scale = 3;
-    // More detailed NES-style duck sprites (16x12)
-    // Frame 0: wings up
-    const f0 = [
-      '......22........',
-      '.....2222.......',
-      '....222222......',
-      '....222222......',
-      '..11111111......',
-      '.1111111113355..',
-      '.11114111..55...',
-      '111111111133....',
-      '.1166611111.....',
-      '..166611........',
-      '...111..........',
-      '................',
-    ];
-    // Frame 1: wings mid (horizontal)
-    const f1 = [
-      '................',
-      '................',
-      '..2211111111....',
-      '.222111111113355',
-      '.11111411....55.',
-      '111111111133....',
-      '.1166611111.....',
-      '..22661111......',
-      '...2211.........',
-      '................',
-      '................',
-      '................',
-    ];
-    // Frame 2: wings down
-    const f2 = [
-      '................',
-      '................',
-      '...111111111....',
-      '..1111111113355.',
-      '.11111411...55..',
-      '111111111133....',
-      '.1166611111.....',
-      '..116622111.....',
-      '...22222........',
-      '....2222........',
-      '.....22.........',
-      '................',
-    ];
-    return [
-      this.renderPixels(f0, p, scale),
-      this.renderPixels(f1, p, scale),
-      this.renderPixels(f2, p, scale),
-    ];
-  },
-
-  createGun() {
-    const p = { '.': null, '1': '#555555', '2': '#888888', '3': '#333333', '4': '#8B4513', '5': '#654321' };
-    const rows = [
-      '....111....',
-      '....121....',
-      '....121....',
-      '....131....',
-      '....131....',
-      '....131....',
-      '...11311...',
-      '..1113111..',
-      '.111131111.',
-      '.444131444.',
-      '.455131554.',
-      '.455555554.',
-      '..4555554..',
-      '...44444...',
-    ];
-    return this.renderPixels(rows, p, 3);
-  },
-
-  createTree() {
-    const p = { '.': null, '1': '#228B22', '2': '#2EA82E', '3': '#1A6B1A', '4': '#8B4513', '5': '#6B3410' };
-    const rows = [
-      '......222......',
-      '....2222222....',
-      '...222222222...',
-      '..22211122222..',
-      '.2222331122222.',
-      '.2222233112222.',
-      '..22222331222..',
-      '...222222222...',
-      '....2222222....',
-      '......222......',
-      '.....22222.....',
-      '...222222222...',
-      '..22233112222..',
-      '.2222233112222.',
-      '.2222222222222.',
-      '..22222222222..',
-      '...222222222...',
-      '.....22222.....',
-      '......444......',
-      '......454......',
-      '......454......',
-      '......454......',
-      '......454......',
-      '......444......',
-      '.....44444.....',
-    ];
-    return this.renderPixels(rows, p, 3);
-  },
-
-  createBush() {
-    const p = { '.': null, '1': '#228B22', '2': '#2EA82E', '3': '#1A6B1A', '4': '#3BC43B' };
-    const rows = [
-      '...2222...',
-      '..224222..',
-      '.22224222.',
-      '2222242222',
-      '2231122222',
-      '2233112222',
-      '.22222222.',
-      '..222222..',
-    ];
-    return this.renderPixels(rows, p, 3);
-  },
-
-  createCrosshair() {
-    const off = document.createElement('canvas');
-    off.width = 32;
-    off.height = 32;
-    const c = off.getContext('2d');
-    // Thicker, more visible crosshair
-    c.strokeStyle = '#fff';
-    c.lineWidth = 3;
-    c.beginPath();
-    c.arc(16, 16, 10, 0, Math.PI * 2);
-    c.stroke();
-    c.strokeStyle = '#000';
-    c.lineWidth = 1;
-    c.beginPath();
-    c.arc(16, 16, 10, 0, Math.PI * 2);
-    c.stroke();
-    // Cross
-    c.strokeStyle = '#fff';
-    c.lineWidth = 2;
-    c.beginPath();
-    c.moveTo(16, 2); c.lineTo(16, 10);
-    c.moveTo(16, 22); c.lineTo(16, 30);
-    c.moveTo(2, 16); c.lineTo(10, 16);
-    c.moveTo(22, 16); c.lineTo(30, 16);
-    c.stroke();
-    c.fillStyle = '#f00';
-    c.fillRect(15, 15, 2, 2);
-    return off;
-  },
-
-  flip(img) {
-    const off = document.createElement('canvas');
-    off.width = img.width;
-    off.height = img.height;
-    const c = off.getContext('2d');
-    c.translate(img.width, 0);
-    c.scale(-1, 1);
-    c.drawImage(img, 0, 0);
-    return off;
+  function toggleTheme() {
+    _theme = _theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', _theme);
+    localStorage.setItem('lp_theme', _theme);
+    document.getElementById('theme-btn').textContent = _theme === 'dark' ? '☀ Light' : '☾ Dark';
   }
-};
 
-// ---- SCENERY (Duck Hunt background elements) ----
-const Scenery = {
-  clouds: [],
-  init() {
-    this.clouds = [];
-    for (let i = 0; i < 5; i++) {
-      this.clouds.push({
-        x: Math.random() * W,
-        y: 30 + Math.random() * 80,
-        w: 60 + Math.random() * 80,
-        speed: 3 + Math.random() * 5,
-      });
-    }
-  },
-  update(dt) {
-    for (const c of this.clouds) {
-      c.x += c.speed * dt;
-      if (c.x > W + c.w) c.x = -c.w;
-    }
-  },
-  drawClouds() {
-    ctx.fillStyle = '#ffffff';
-    for (const c of this.clouds) {
-      ctx.globalAlpha = 0.7;
-      // Simple cloud shape with rounded rects
-      const r = c.w * 0.2;
-      ctx.beginPath();
-      ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
-      ctx.arc(c.x + r * 1.2, c.y - r * 0.4, r * 1.1, 0, Math.PI * 2);
-      ctx.arc(c.x + r * 2.2, c.y, r * 0.8, 0, Math.PI * 2);
-      ctx.arc(c.x + r * 1.1, c.y + r * 0.3, r * 0.7, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-  }
-};
-
-// ---- BINANCE LIVE FEED ----
-const BinanceFeed = {
-  ws: null,
-  connected: false,
-  lastPrice: null,
-  basePrice: null,
-  symbol: 'btcusdt',
-  enabled: false,
-
-  connect() {
-    try {
-      this.ws = new WebSocket(`wss://stream.binance.com:9443/ws/${this.symbol}@trade`);
-      this.ws.onopen = () => { this.connected = true; };
-      this.ws.onmessage = (e) => {
-        const data = JSON.parse(e.data);
-        const price = parseFloat(data.p);
-        if (!this.basePrice) this.basePrice = price;
-        this.lastPrice = price;
-      };
-      this.ws.onclose = () => { this.connected = false; };
-      this.ws.onerror = () => { this.connected = false; this.enabled = false; };
-    } catch (e) {
-      this.enabled = false;
-    }
-  },
-
-  disconnect() {
-    if (this.ws) { this.ws.close(); this.ws = null; }
-    this.connected = false;
-    this.lastPrice = null;
-    this.basePrice = null;
-  },
-
-  // Returns normalized price (scaled to ~100 center) for game use
-  getNormalizedPrice() {
-    if (!this.lastPrice || !this.basePrice) return null;
-    // Scale: every 0.1% move in BTC = 1 unit in game
-    return 100 + ((this.lastPrice - this.basePrice) / this.basePrice) * 1000;
-  }
-};
-
-// ---- MARKET SIMULATOR ----
-const Market = {
-  price: 100,
-  momentum: 0,
-  volatility: 0.5,
-  trend: 0,
-  patternTimer: 0,
-  currentPattern: 'noise',
-  patternDuration: 0,
-  history: [],
-  historyTimer: 0,
-  realPrice: null,        // actual BTC price from Binance
-  lastRealPrice: null,
-  priceReturns: [],       // recent returns for pattern detection
-
-  reset() {
-    this.price = 100;
-    this.momentum = 0;
-    this.volatility = 0.5;
-    this.trend = 0;
-    this.currentPattern = 'noise';
-    this.history = [];
-    this.historyTimer = 0;
-    this.priceReturns = [];
-    this.realPrice = null;
-    this.lastRealPrice = null;
-    for (let i = 0; i < 120; i++) this.history.push(100);
-
-    // Connect to Binance
-    BinanceFeed.disconnect();
-    BinanceFeed.connect();
-  },
-
-  update(dt) {
-    const livePrice = BinanceFeed.getNormalizedPrice();
-
-    if (livePrice !== null) {
-      // ---- LIVE MODE: follow real BTC price ----
-      const prevPrice = this.price;
-      // Smooth towards live price (don't teleport)
-      this.price += (livePrice - this.price) * Math.min(1, dt * 8);
-
-      const priceChange = this.price - prevPrice;
-      this.realPrice = BinanceFeed.lastPrice;
-
-      // Derive momentum from actual price movement
-      this.priceReturns.push(priceChange);
-      if (this.priceReturns.length > 30) this.priceReturns.shift();
-
-      // Calculate real momentum from recent returns
-      const recentReturns = this.priceReturns.slice(-10);
-      const avgReturn = recentReturns.reduce((a, b) => a + b, 0) / recentReturns.length;
-      this.momentum = clamp(avgReturn * 5, -2.5, 2.5);
-
-      // Calculate real volatility from returns
-      if (this.priceReturns.length > 5) {
-        const mean = this.priceReturns.reduce((a, b) => a + b, 0) / this.priceReturns.length;
-        const variance = this.priceReturns.reduce((a, b) => a + (b - mean) ** 2, 0) / this.priceReturns.length;
-        this.volatility = Math.sqrt(variance) * 10;
-      }
-
-      // Detect pattern from real price movement
-      this.detectPattern();
-
-      this.trend = clamp(this.momentum / 1.5, -1, 1);
-    } else {
-      // ---- FALLBACK: simulated price if Binance not connected ----
-      this.simulatePrice(dt);
-    }
-
-    this.historyTimer += dt;
-    if (this.historyTimer >= 0.1) {
-      this.historyTimer -= 0.1;
-      this.history.push(this.price);
-      if (this.history.length > 120) this.history.shift();
-    }
-  },
-
-  detectPattern() {
-    // Analyze recent returns to classify market state
-    if (this.priceReturns.length < 10) { this.currentPattern = 'noise'; return; }
-
-    const recent = this.priceReturns.slice(-10);
-    const older = this.priceReturns.slice(-20, -10);
-
-    const recentSum = recent.reduce((a, b) => a + b, 0);
-    const olderSum = older.length > 0 ? older.reduce((a, b) => a + b, 0) : 0;
-    const recentAbs = recent.reduce((a, b) => a + Math.abs(b), 0);
-
-    // Strong directional move = signal
-    if (Math.abs(recentSum) > recentAbs * 0.6) {
-      // Check if it reversed from older period (fakeout)
-      if (older.length > 5 && Math.sign(recentSum) !== Math.sign(olderSum) && Math.abs(olderSum) > 0.3) {
-        this.currentPattern = 'fakeout';
-      } else {
-        this.currentPattern = 'signal';
-      }
-      this.trend = recentSum > 0 ? 1 : -1;
-    } else {
-      this.currentPattern = 'noise';
-    }
-  },
-
-  simulatePrice(dt) {
-    // Fallback simulation when Binance isn't connected
-    const noise = (Math.random() - 0.5) * this.volatility * dt * 60;
-    this.momentum *= (1 - 0.8 * dt);
-    this.momentum += (Math.random() - 0.5) * 0.2 * dt;
-    this.momentum = clamp(this.momentum, -2.5, 2.5);
-    this.price += this.momentum * dt * 10 + noise;
-    this.price = clamp(this.price, 50, 150);
-    this.trend = clamp(this.momentum / 1.5, -1, 1);
-    // Rotate patterns on timer
-    this._patTimer = (this._patTimer || 3) - dt;
-    if (this._patTimer <= 0) {
-      const r = Math.random();
-      this.currentPattern = r < 0.75 ? 'noise' : r < 0.9 ? 'fakeout' : 'signal';
-      this._patTimer = 2 + Math.random() * 4;
-      if (this.currentPattern !== 'noise') this.trend = Math.random() > 0.5 ? 1 : -1;
-    }
-  },
-
-  drawMiniChart() {
-    const cx = W - 140;
-    const cy = 10;
-    const cw = 130;
-    const ch = 40;
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(cx, cy, cw, ch);
-    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-    ctx.strokeRect(cx, cy, cw, ch);
-
-    if (this.history.length < 2) return;
-    const min = Math.min(...this.history);
-    const max = Math.max(...this.history);
-    const range = max - min || 1;
-
-    ctx.strokeStyle = this.momentum >= 0 ? 'rgba(0,255,100,0.6)' : 'rgba(255,60,60,0.6)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let i = 0; i < this.history.length; i++) {
-      const x = cx + (i / (this.history.length - 1)) * cw;
-      const y = cy + ch - ((this.history[i] - min) / range) * (ch - 4) - 2;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.stroke();
-
-    // Price label — show real BTC price if connected
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 9px monospace';
-    if (BinanceFeed.connected && this.realPrice) {
-      ctx.fillText('BTC $' + this.realPrice.toFixed(2), cx + 2, cy + 10);
-      // Live indicator
-      ctx.fillStyle = '#0f0';
-      ctx.fillRect(cx + cw - 8, cy + 2, 4, 4);
-      ctx.font = '7px monospace';
-      ctx.fillStyle = '#0f0';
-      ctx.fillText('LIVE', cx + cw - 28, cy + 7);
-    } else {
-      ctx.fillText('$' + this.price.toFixed(2), cx + 2, cy + 10);
-      ctx.fillStyle = '#f80';
-      ctx.font = '7px monospace';
-      ctx.fillText('SIM', cx + cw - 22, cy + 7);
-    }
-    // Pattern indicator
-    const pColor = this.currentPattern === 'signal' ? '#4f4' : this.currentPattern === 'fakeout' ? '#f84' : '#888';
-    ctx.fillStyle = pColor;
-    ctx.fillRect(cx + 2, cy + ch - 6, 4, 4);
-  }
-};
-
-// ---- GAME STATE ----
-const State = {
-  phase: 'menu', // menu | playing | endscreen
-  score: 0,
-  totalPnl: 0,
-  disciplineMultiplier: 1.0,
-  timeSinceLastShot: 0,
-  shotsFired: 0,
-  passivePointTimer: 0,
-  timeRemaining: CONFIG.roundDuration,
-  tradesWon: 0,
-  tradesTotal: 0,
-  bestMultiplier: 1.0,
-  totalTime: 0,
-
-  reset() {
-    this.score = 0;
-    this.totalPnl = 0;
-    this.disciplineMultiplier = 1.0;
-    this.timeSinceLastShot = 0;
-    this.shotsFired = 0;
-    this.passivePointTimer = 0;
-    this.timeRemaining = CONFIG.roundDuration;
-    this.tradesWon = 0;
-    this.tradesTotal = 0;
-    this.bestMultiplier = 1.0;
-    this.totalTime = 0;
-  },
-
-  updateMultiplier(dt) {
-    this.timeSinceLastShot += dt;
-    this.disciplineMultiplier = Math.min(
-      CONFIG.maxMultiplier,
-      1.0 + Math.floor(this.timeSinceLastShot / 2) * 0.2
-    );
-    if (this.disciplineMultiplier > this.bestMultiplier) {
-      this.bestMultiplier = this.disciplineMultiplier;
-    }
-
-    this.passivePointTimer += dt;
-    if (this.passivePointTimer >= CONFIG.passivePointRate) {
-      this.passivePointTimer -= CONFIG.passivePointRate;
-      this.score += 1 * this.disciplineMultiplier;
-    }
-  },
-
-  resetMultiplier() {
-    this.timeSinceLastShot = 0;
-    this.disciplineMultiplier = 1.0;
-  }
-};
-
-// ---- EFFECTS ENGINE ----
-const Effects = {
-  shakeAmount: 0,
-  shakeDuration: 0,
-  flashColor: null,
-  flashAlpha: 0,
-  particles: [],
-  floatingTexts: [],
-  gunRecoil: 0,
-
-  tradeResults: [],
-
-  reset() {
-    this.shakeAmount = 0;
-    this.shakeDuration = 0;
-    this.flashColor = null;
-    this.flashAlpha = 0;
-    this.particles = [];
-    this.floatingTexts = [];
-    this.tradeResults = [];
-    this.gunRecoil = 0;
-  },
-
-  screenShake(dur) {
-    this.shakeDuration = dur;
-    this.shakeAmount = 8;
-  },
-
-  flash(color) {
-    this.flashColor = color;
-    this.flashAlpha = 0.3;
-  },
-
-  spawnParticles(x, y, color, count) {
-    for (let i = 0; i < count; i++) {
-      this.particles.push({
-        x, y,
-        vx: (Math.random() - 0.5) * 250,
-        vy: (Math.random() - 0.5) * 250 - 80,
-        life: 0.4 + Math.random() * 0.4,
-        maxLife: 0.8,
-        color,
-        size: 2 + Math.random() * 3,
-      });
-    }
-  },
-
-  addFloatingText(x, y, text, color) {
-    this.floatingTexts.push({ x, y, text, color, life: 1.5, maxLife: 1.5 });
-  },
-
-  addTradeResult(text, color, amount) {
-    this.tradeResults.push({
-      text,
-      color,
-      amount,
-      life: 2.0,
-      maxLife: 2.0,
-      scale: 0,     // animates in from 0 to 1
-      y: H / 2 - 50,
+  function setStep(idx) {
+    document.querySelectorAll('#pipe-demo .pipe-step').forEach(function(s, i) {
+      s.style.opacity = i <= idx ? '1' : '0.35';
+      s.classList.toggle('active', i <= idx);
     });
-  },
-
-  update(dt) {
-    if (this.shakeDuration > 0) {
-      this.shakeDuration -= dt;
-      this.shakeAmount *= 0.92;
-    } else {
-      this.shakeAmount = 0;
-    }
-
-    if (this.flashAlpha > 0) this.flashAlpha -= dt * 1.5;
-
-    this.gunRecoil *= 0.85;
-
-    for (const p of this.particles) {
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.vy += 500 * dt;
-      p.life -= dt;
-    }
-    this.particles = this.particles.filter(p => p.life > 0);
-
-    for (const t of this.floatingTexts) {
-      t.y -= 40 * dt;
-      t.life -= dt;
-    }
-    this.floatingTexts = this.floatingTexts.filter(t => t.life > 0);
-
-    for (const r of this.tradeResults) {
-      r.life -= dt;
-      r.y -= 15 * dt;
-      // Scale springs in quickly
-      r.scale = Math.min(1, r.scale + dt * 5);
-    }
-    this.tradeResults = this.tradeResults.filter(r => r.life > 0);
-  },
-
-  applyShake() {
-    if (this.shakeAmount > 0.5) {
-      ctx.translate(
-        (Math.random() - 0.5) * this.shakeAmount,
-        (Math.random() - 0.5) * this.shakeAmount
-      );
-    }
-  },
-
-  drawParticles() {
-    for (const p of this.particles) {
-      const alpha = p.life / p.maxLife;
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = p.color;
-      ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
-    }
-    ctx.globalAlpha = 1;
-  },
-
-  drawFloatingTexts() {
-    for (const t of this.floatingTexts) {
-      const alpha = t.life / t.maxLife;
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = t.color;
-      ctx.font = 'bold 12px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(t.text, t.x, t.y);
-    }
-    ctx.globalAlpha = 1;
-    ctx.textAlign = 'left';
-  },
-
-  drawTradeResults() {
-    for (const r of this.tradeResults) {
-      const alpha = Math.min(1, r.life / (r.maxLife * 0.3));
-      ctx.save();
-      ctx.globalAlpha = alpha;
-      ctx.textAlign = 'center';
-      ctx.translate(W / 2, r.y);
-      ctx.scale(r.scale, r.scale);
-
-      // Shadow/outline for readability
-      ctx.font = 'bold 36px monospace';
-      ctx.strokeStyle = '#000';
-      ctx.lineWidth = 4;
-      ctx.strokeText(r.text, 0, 0);
-
-      ctx.fillStyle = r.color;
-      ctx.fillText(r.text, 0, 0);
-
-      // Subtext
-      ctx.font = '14px monospace';
-      ctx.fillStyle = '#fff';
-      const subtext = r.amount >= 0 ? 'TRADE WON' : 'TRADE LOST';
-      ctx.fillText(subtext, 0, 24);
-
-      ctx.restore();
-      ctx.textAlign = 'left';
-      ctx.globalAlpha = 1;
-    }
-  },
-
-  drawFlash() {
-    if (this.flashAlpha > 0) {
-      ctx.globalAlpha = this.flashAlpha;
-      ctx.fillStyle = this.flashColor;
-      ctx.fillRect(0, 0, W, H);
-      ctx.globalAlpha = 1;
-    }
-  }
-};
-
-// ---- DUCK MANAGER ----
-const Ducks = {
-  list: [],
-  spawnTimer: 0,
-
-  reset() {
-    this.list = [];
-    this.spawnTimer = 1;
-  },
-
-  update(dt) {
-    this.spawnTimer -= dt;
-    if (this.spawnTimer <= 0) {
-      this.spawn();
-      const volMod = 1 - Math.abs(Market.momentum) * 0.3;
-      this.spawnTimer = clamp(CONFIG.duckSpawnBase * volMod + Math.random() * 0.4, 0.4, 1.6);
-    }
-
-    for (const d of this.list) {
-      if (d.shot) {
-        // --- Falling animation for killed ducks (2nd shot landed) ---
-        d.x += d.vx * dt;
-        d.fallVy += 400 * dt;
-        d.y += d.fallVy * dt;
-        d.fallRotation += d.fallRotSpeed * dt;
-        if (Math.random() < 0.3) {
-          Effects.particles.push({
-            x: d.x + (Math.random() - 0.5) * 10, y: d.y,
-            vx: (Math.random() - 0.5) * 20, vy: -20 - Math.random() * 30,
-            life: 0.3 + Math.random() * 0.2, maxLife: 0.5,
-            color: '#888', size: 2 + Math.random() * 2,
-          });
-        }
-        if (d.y > H - 95) {
-          d.dead = true;
-          Effects.spawnParticles(d.x, H - 100, '#aa8855', 6);
-        }
-        continue;
-      }
-
-      // --- Tagged duck (position open, waiting for 2nd shot) ---
-      if (d.tagged) {
-        // Stun briefly
-        if (d.stunTimer > 0) {
-          d.stunTimer -= dt;
-          continue;
-        }
-        d.tradeElapsed += dt;
-        // Erratic movement: random direction changes
-        if (Math.random() < 0.04) {
-          d.vx += (Math.random() - 0.5) * 100;
-          d.vx = clamp(d.vx, -200, 200);
-        }
-        if (Math.random() < 0.04) {
-          d.y += (Math.random() - 0.5) * 30;
-        }
-        // Running PnL for display
-        d.runningPnl = d.type === 'long'
-          ? (Market.price - d.entryPrice) * 10
-          : (d.entryPrice - Market.price) * 10;
-      }
-
-      // --- Normal flying duck ---
-      // Horizontal
-      d.x += d.vx * dt;
-      // Wobble
-      d.wobblePhase += d.wobbleSpeed * dt;
-      d.y += Math.sin(d.wobblePhase) * d.wobbleAmp * dt;
-      d.y = clamp(d.y, 30, H - 140);
-      // Animation
-      d.frameTimer += dt;
-      if (d.frameTimer > 0.15) {
-        d.frame = (d.frame + 1) % 3;
-        d.frameTimer = 0;
-      }
-      // Signal ducks leave sparkle trail
-      if (d.isSignalDuck) {
-        d._trailTimer = (d._trailTimer || 0) + dt;
-        if (d._trailTimer > 0.08) {
-          d._trailTimer = 0;
-          const col = d.type === 'long' ? '#00ff44' : '#ff4444';
-          Effects.particles.push({
-            x: d.x + (Math.random() - 0.5) * 16,
-            y: d.y + (Math.random() - 0.5) * 10,
-            vx: (Math.random() - 0.5) * 30,
-            vy: (Math.random() - 0.5) * 30 - 15,
-            life: 0.4 + Math.random() * 0.3,
-            maxLife: 0.7,
-            color: col,
-            size: 2 + Math.random() * 2,
-          });
-        }
-      }
-      // Noise ducks occasionally jitter (visible stutter)
-      if (!d.isSignalDuck && Math.random() < 0.03) {
-        d.y += (Math.random() - 0.5) * 12;
-      }
-      // Off screen
-      if (d.x < -60 || d.x > W + 60) {
-        // Tagged duck escaping = auto-close trade at current price (usually bad)
-        if (d.tagged && !d.shot) {
-          const pnl = d.type === 'long'
-            ? Market.price - d.entryPrice
-            : d.entryPrice - Market.price;
-          const scaled = pnl * 10;
-          State.totalPnl += scaled;
-          State.tradesTotal++;
-          if (scaled > 0) { State.score += scaled; State.tradesWon++; }
-
-          const resultText = scaled >= 0
-            ? `+$${scaled.toFixed(1)}`
-            : `-$${Math.abs(scaled).toFixed(1)}`;
-          Effects.addTradeResult(
-            `ESCAPED ${resultText}`,
-            scaled >= 0 ? '#ffaa00' : '#ff2222',
-            scaled
-          );
-          if (scaled < 0) {
-            Effects.screenShake(0.3);
-            Audio.badTrade();
-          }
-          Trades.history.push({
-            type: d.type, entryPrice: d.entryPrice,
-            exitPrice: Market.price, pnl, scaledPnl: scaled,
-          });
-        }
-        d.dead = true;
-      }
-    }
-
-    this.list = this.list.filter(d => !d.dead);
-  },
-
-  spawn() {
-    const greenProb = 0.5 + Market.trend * 0.3;
-    const isGreen = Math.random() < greenProb;
-    const fromLeft = Math.random() > 0.5;
-    const y = 40 + Math.random() * (H - 220);
-    const baseSpeed = 80 + Math.random() * 60;
-    const speedMod = 1 + Math.abs(Market.momentum) * 0.5;
-
-    // Signal quality
-    let signalQuality;
-    const trendAlign = isGreen ? Market.trend : -Market.trend;
-    if (Market.currentPattern === 'signal' && trendAlign > 0.3) {
-      signalQuality = 0.8 + Math.random() * 0.2;
-    } else if (Market.currentPattern === 'fakeout') {
-      signalQuality = -0.5 - Math.random() * 0.5;
-    } else {
-      signalQuality = -0.2 + Math.random() * 0.4;
-    }
-
-    // Wobble: noisy ducks wobble more, signal ducks are smooth
-    const isSignalDuck = signalQuality > 0.6;
-    const wobbleAmp = isSignalDuck ? (3 + Math.random() * 5) : (15 + Math.random() * 25);
-    const wobbleSpeed = isSignalDuck ? (1 + Math.random()) : (3 + Math.random() * 4);
-
-    this.list.push({
-      x: fromLeft ? -40 : W + 40,
-      y,
-      vx: (fromLeft ? 1 : -1) * baseSpeed * speedMod,
-      vy: 0,
-      type: isGreen ? 'long' : 'short',
-      signalQuality,
-      isSignalDuck,
-      width: 36,
-      height: 30,
-      frameTimer: 0,
-      frame: 0,
-      wobblePhase: Math.random() * Math.PI * 2,
-      wobbleSpeed,
-      wobbleAmp,
-      dead: false,
-      facingLeft: !fromLeft,
-    });
-  },
-
-  draw() {
-    for (const d of this.list) {
-      const spriteKey = d.type === 'long'
-        ? (d.isSignalDuck ? 'greenDuckGlow' : 'greenDuck')
-        : (d.isSignalDuck ? 'redDuckGlow' : 'redDuck');
-      let frames = SpriteFactory.cache[spriteKey];
-      let img = frames[d.frame];
-      if (d.facingLeft) {
-        if (!d._flipped) {
-          d._flipped = frames.map(f => SpriteFactory.flip(f));
-        }
-        img = d._flipped[d.frame];
-      }
-
-      const drawX = d.x - img.width / 2;
-      const drawY = d.y - img.height / 2;
-
-      // Shot duck: draw tumbling
-      if (d.shot) {
-        ctx.save();
-        ctx.translate(d.x, d.y);
-        ctx.rotate(d.fallRotation);
-        ctx.globalAlpha = 0.8;
-        ctx.drawImage(img, -img.width / 2, -img.height / 2);
-        ctx.restore();
-        ctx.globalAlpha = 1;
-        continue;
-      }
-
-      // Tagged duck: show open position indicator
-      if (d.tagged) {
-        const tagColor = d.type === 'long' ? '#00ff44' : '#ff2222';
-        const pulse = 0.6 + 0.4 * Math.sin(State.totalTime * 8);
-
-        // Flashing border ring
-        ctx.save();
-        ctx.strokeStyle = tagColor;
-        ctx.lineWidth = 2;
-        ctx.globalAlpha = pulse;
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath();
-        ctx.arc(d.x, d.y, 24, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.restore();
-
-        // Draw duck normally
-        ctx.drawImage(img, drawX, drawY);
-
-        // Running PnL above duck
-        if (d.runningPnl !== undefined) {
-          const pnlCol = d.runningPnl >= 0 ? '#00ff44' : '#ff2222';
-          const pnlSign = d.runningPnl >= 0 ? '+' : '';
-          ctx.font = 'bold 11px monospace';
-          ctx.textAlign = 'center';
-          ctx.fillStyle = '#000';
-          ctx.fillText(`${pnlSign}$${d.runningPnl.toFixed(1)}`, d.x + 1, d.y - 19);
-          ctx.fillStyle = pnlCol;
-          ctx.fillText(`${pnlSign}$${d.runningPnl.toFixed(1)}`, d.x, d.y - 20);
-          // "OPEN" label below
-          ctx.font = '8px monospace';
-          ctx.fillStyle = tagColor;
-          ctx.globalAlpha = pulse;
-          ctx.fillText('OPEN', d.x, d.y + 22);
-          ctx.globalAlpha = 1;
-          ctx.textAlign = 'left';
-        }
-        continue;
-      }
-
-      if (d.isSignalDuck) {
-        // --- SIGNAL DUCK: very visible ---
-        const glowColor = d.type === 'long' ? '#00ff44' : '#ff2222';
-        const pulse = 0.6 + 0.4 * Math.sin(State.totalTime * 6);
-
-        // Outer pulsing glow ring
-        ctx.save();
-        ctx.shadowColor = glowColor;
-        ctx.shadowBlur = 18 + pulse * 10;
-        ctx.globalAlpha = 0.5 + pulse * 0.3;
-        ctx.beginPath();
-        ctx.arc(d.x, d.y, 22 + pulse * 4, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(0,0,0,0)';
-        ctx.strokeStyle = glowColor;
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.restore();
-
-        // Draw sprite scaled up slightly (1.15x)
-        ctx.save();
-        ctx.shadowColor = glowColor;
-        ctx.shadowBlur = 14;
-        ctx.translate(d.x, d.y);
-        ctx.scale(1.15, 1.15);
-        ctx.drawImage(img, -img.width / 2, -img.height / 2);
-        ctx.restore();
-
-        // Small arrow indicator above duck
-        ctx.fillStyle = glowColor;
-        ctx.font = 'bold 14px monospace';
-        ctx.textAlign = 'center';
-        ctx.globalAlpha = 0.7 + pulse * 0.3;
-        ctx.fillText(d.type === 'long' ? '\u25B2' : '\u25BC', d.x, d.y - 22);
-        ctx.globalAlpha = 1;
-        ctx.textAlign = 'left';
-
-        // Trailing sparkle particles (spawn during update)
-      } else {
-        // --- NOISE / FAKEOUT DUCK: normal, slightly transparent on high wobble ---
-        const wobbleIntensity = clamp(d.wobbleAmp / 30, 0, 1);
-        ctx.globalAlpha = 0.7 + 0.3 * (1 - wobbleIntensity);
-        ctx.drawImage(img, drawX, drawY);
-        ctx.globalAlpha = 1;
-      }
-    }
-  },
-
-  hitTest(mx, my) {
-    for (let i = this.list.length - 1; i >= 0; i--) {
-      const d = this.list[i];
-      if (d.dead || d.shot) continue;
-      const hw = d.width / 2;
-      const hh = d.height / 2;
-      if (mx > d.x - hw && mx < d.x + hw && my > d.y - hh && my < d.y + hh) {
-        return d;
-      }
-    }
-    return null;
-  }
-};
-
-// ---- TRADE MANAGER ----
-const Trades = {
-  active: [],
-  history: [],
-
-  reset() {
-    this.active = [];
-    this.history = [];
-  },
-
-  // Trades are now managed on duck objects directly (2-shot system)
-  // TradeManager just tracks history and draws active trade list
-
-  update(dt) {
-    // Nothing to do — trades live on tagged ducks now
-  },
-
-  drawActive() {
-    // Show open positions from tagged ducks
-    const tagged = Ducks.list.filter(d => d.tagged && !d.shot);
-    if (tagged.length === 0) return;
-    let y = 55;
-    ctx.font = '10px monospace';
-    for (const d of tagged) {
-      const pnl = d.runningPnl || 0;
-      const col = pnl >= 0 ? '#0f0' : '#f00';
-      const sign = pnl >= 0 ? '+' : '';
-      const label = `${d.type.toUpperCase()} @ $${d.entryPrice.toFixed(2)} | ${sign}$${pnl.toFixed(1)}`;
-      ctx.fillStyle = 'rgba(0,0,0,0.7)';
-      ctx.fillRect(5, y - 10, ctx.measureText(label).width + 8, 14);
-      ctx.fillStyle = col;
-      ctx.fillText(label, 9, y);
-      y += 16;
-    }
-  }
-};
-
-// ---- INPUT ----
-const Input = {
-  mx: W / 2,
-  my: H / 2,
-
-  init() {
-    canvas.addEventListener('mousemove', (e) => {
-      const rect = canvas.getBoundingClientRect();
-      const scaleX = W / rect.width;
-      const scaleY = H / rect.height;
-      this.mx = (e.clientX - rect.left) * scaleX;
-      this.my = (e.clientY - rect.top) * scaleY;
-    });
-
-    canvas.addEventListener('click', (e) => {
-      Audio.ensure();
-      if (State.phase === 'menu') {
-        startGame();
-        return;
-      }
-      if (State.phase === 'endscreen') {
-        startGame();
-        return;
-      }
-      if (State.phase === 'playing') {
-        this.handleShot();
-      }
-    });
-  },
-
-  handleShot() {
-    Audio.shoot();
-    Effects.gunRecoil = 8;
-    Effects.spawnParticles(W / 2, H - 110, '#ff0', 4);
-
-    const duck = Ducks.hitTest(this.mx, this.my);
-    if (duck) {
-      Audio.quack();
-      const color = duck.type === 'long' ? '#33ff33' : '#ff3333';
-
-      if (!duck.tagged) {
-        // ===== FIRST SHOT: Open position =====
-        duck.tagged = true;
-        duck.entryPrice = Market.price;
-        duck.tradeElapsed = 0;
-
-        // Visual: duck gets hit, brief stun, then flies erratically
-        duck.stunTimer = 0.3;
-        Effects.spawnParticles(duck.x, duck.y, color, 8);
-        Effects.spawnParticles(duck.x, duck.y, '#fff', 4);
-
-        // Make it fly more erratically after tagging
-        duck.wobbleAmp = 25 + Math.random() * 20;
-        duck.wobbleSpeed = 4 + Math.random() * 3;
-        // Speed up to make the close shot harder
-        duck.vx *= 1.3 + Math.random() * 0.5;
-        // Randomly change direction sometimes
-        if (Math.random() < 0.3) duck.vx *= -1;
-
-        State.shotsFired++;
-        State.resetMultiplier();
-
-        Effects.addFloatingText(
-          duck.x, duck.y - 20,
-          `OPEN ${duck.type.toUpperCase()} @ $${(Market.realPrice || Market.price).toFixed(2)}`,
-          color
-        );
-      } else {
-        // ===== SECOND SHOT: Close position =====
-        const pnl = duck.type === 'long'
-          ? Market.price - duck.entryPrice
-          : duck.entryPrice - Market.price;
-
-        // Kill the duck — tumbling fall
-        duck.shot = true;
-        duck.fallVy = -80;
-        duck.fallRotation = 0;
-        duck.fallRotSpeed = (Math.random() > 0.5 ? 1 : -1) * (8 + Math.random() * 4);
-        duck.vx *= 0.2;
-
-        Effects.spawnParticles(duck.x, duck.y, color, 12);
-        Effects.spawnParticles(duck.x, duck.y, '#fff', 6);
-
-        // Process trade result
-        const scaled = pnl * 10;
-        State.totalPnl += scaled;
-        State.tradesTotal++;
-        State.shotsFired++;
-        State.resetMultiplier();
-
-        const resultText = scaled >= 0
-          ? `+$${scaled.toFixed(1)}`
-          : `-$${Math.abs(scaled).toFixed(1)}`;
-
-        Effects.addFloatingText(
-          duck.x, duck.y - 20,
-          `CLOSE @ $${(Market.realPrice || Market.price).toFixed(2)} ${resultText}`,
-          scaled >= 0 ? '#00ff44' : '#ff2222'
-        );
-
-        if (scaled > 0) {
-          State.score += scaled;
-          State.tradesWon++;
-          Effects.flash('#00ff00');
-          Effects.addTradeResult(resultText, '#00ff44', scaled);
-          Effects.spawnParticles(duck.x, duck.y, '#ffff00', 10);
-          Audio.goodTrade();
-        } else {
-          Effects.screenShake(0.4 + Math.min(Math.abs(scaled) * 0.03, 0.4));
-          Effects.flash('#ff0000');
-          Effects.addTradeResult(resultText, '#ff2222', scaled);
-          Audio.badTrade();
-        }
-
-        Trades.history.push({
-          type: duck.type,
-          entryPrice: duck.entryPrice,
-          exitPrice: Market.price,
-          pnl,
-          scaledPnl: scaled,
-        });
-      }
-    } else {
-      // Miss
-      Effects.spawnParticles(this.mx, this.my, '#888', 3);
-      State.shotsFired++;
-      State.resetMultiplier();
-    }
-  },
-
-  drawCrosshair() {
-    const img = SpriteFactory.cache.crosshair;
-    ctx.drawImage(img, this.mx - 16, this.my - 16);
-  }
-};
-
-// ---- HUD ----
-const HUD = {
-  draw() {
-    const barY = H - 40;
-    // Bar background
-    ctx.fillStyle = 'rgba(0,0,0,0.8)';
-    ctx.fillRect(0, barY, W, 40);
-    ctx.strokeStyle = '#444';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, barY);
-    ctx.lineTo(W, barY);
-    ctx.stroke();
-
-    ctx.font = 'bold 14px monospace';
-    const y = barY + 25;
-
-    // Score
-    ctx.fillStyle = '#fff';
-    ctx.fillText('SCORE: ' + Math.floor(State.score), 15, y);
-
-    // PnL
-    const pnlColor = State.totalPnl >= 0 ? '#0f0' : '#f00';
-    const pnlSign = State.totalPnl >= 0 ? '+' : '';
-    ctx.fillStyle = pnlColor;
-    ctx.fillText(`PnL: ${pnlSign}$${State.totalPnl.toFixed(1)}`, 180, y);
-
-    // Multiplier
-    const multColor = State.disciplineMultiplier >= 3 ? '#ff0' : State.disciplineMultiplier >= 2 ? '#0ff' : '#fff';
-    ctx.fillStyle = multColor;
-    ctx.fillText(`MULTI: ${State.disciplineMultiplier.toFixed(1)}x`, 370, y);
-
-    // Timer
-    const secs = Math.max(0, Math.ceil(State.timeRemaining));
-    const min = Math.floor(secs / 60);
-    const sec = secs % 60;
-    const timeStr = `${min}:${sec.toString().padStart(2, '0')}`;
-    ctx.fillStyle = secs <= 10 ? '#f00' : '#fff';
-    ctx.fillText(`TIME: ${timeStr}`, 540, y);
-
-    // Shots
-    ctx.fillStyle = '#aaa';
-    ctx.fillText(`SHOTS: ${State.shotsFired}`, 670, y);
-
-    // Multiplier bar (visual)
-    const barW = 100;
-    const barH = 4;
-    const bx = 370;
-    const by = barY + 5;
-    ctx.fillStyle = '#333';
-    ctx.fillRect(bx, by, barW, barH);
-    const fill = (State.disciplineMultiplier - 1) / (CONFIG.maxMultiplier - 1);
-    ctx.fillStyle = multColor;
-    ctx.fillRect(bx, by, barW * fill, barH);
-  }
-};
-
-// ---- END SCREEN ----
-const EndScreen = {
-  fadeIn: 0,
-
-  getGrade() {
-    const s = State.score;
-    if (s >= 500) return { grade: 'S', title: 'Market Sniper', color: '#ff0' };
-    if (s >= 350) return { grade: 'A', title: 'Cool Under Pressure', color: '#0f0' };
-    if (s >= 200) return { grade: 'B', title: 'Steady Hands', color: '#0ff' };
-    if (s >= 100) return { grade: 'C', title: 'Trigger Discipline Needed', color: '#fa0' };
-    if (s >= 0)   return { grade: 'D', title: 'Paper Hands', color: '#f80' };
-    return { grade: 'F', title: 'Blown Account', color: '#f00' };
-  },
-
-  draw() {
-    this.fadeIn = Math.min(1, this.fadeIn + 0.02);
-    ctx.globalAlpha = this.fadeIn;
-
-    // Overlay
-    ctx.fillStyle = 'rgba(0,0,0,0.85)';
-    ctx.fillRect(0, 0, W, H);
-
-    const cx = W / 2;
-    let y = 60;
-
-    // Title
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 28px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('ROUND OVER', cx, y);
-    y += 50;
-
-    // Stats box
-    const bw = 320;
-    const bh = 240;
-    const bx = cx - bw / 2;
-    ctx.strokeStyle = '#555';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(bx, y, bw, bh);
-
-    ctx.font = '14px monospace';
-    ctx.textAlign = 'left';
-    const lx = bx + 20;
-    let ly = y + 30;
-    const lineH = 28;
-
-    const stats = [
-      ['FINAL SCORE', Math.floor(State.score).toString(), '#fff'],
-      ['Total PnL', `${State.totalPnl >= 0 ? '+' : ''}$${State.totalPnl.toFixed(1)}`, State.totalPnl >= 0 ? '#0f0' : '#f00'],
-      ['Shots Fired', State.shotsFired.toString(), '#fff'],
-      ['Trades Won', `${State.tradesWon} / ${State.tradesTotal}`, '#fff'],
-      ['Win Rate', State.tradesTotal > 0 ? `${Math.round(State.tradesWon / State.tradesTotal * 100)}%` : 'N/A', '#fff'],
-      ['Best Multiplier', `${State.bestMultiplier.toFixed(1)}x`, '#ff0'],
-      ['Patience Bonus', `+${Math.max(0, Math.floor((60 - State.shotsFired * 3) * 5))}`, '#0ff'],
-    ];
-
-    // Apply final bonuses to score display
-    const patienceBonus = Math.max(0, (60 - State.shotsFired * 3) * 5);
-    const overtradePenalty = State.shotsFired > CONFIG.overtradingThreshold
-      ? (State.shotsFired - CONFIG.overtradingThreshold) * -15 : 0;
-
-    if (overtradePenalty < 0) {
-      stats.push(['Overtrading', overtradePenalty.toString(), '#f00']);
-    }
-
-    for (const [label, value, color] of stats) {
-      ctx.fillStyle = '#aaa';
-      ctx.fillText(label + ':', lx, ly);
-      ctx.fillStyle = color;
-      ctx.textAlign = 'right';
-      ctx.fillText(value, bx + bw - 20, ly);
-      ctx.textAlign = 'left';
-      ly += lineH;
-    }
-
-    // Grade
-    const g = this.getGrade();
-    y += bh + 30;
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 24px monospace';
-    ctx.fillStyle = g.color;
-    ctx.fillText(`GRADE: ${g.grade}`, cx, y);
-    y += 25;
-    ctx.font = '14px monospace';
-    ctx.fillStyle = g.color;
-    ctx.fillText(`"${g.title}"`, cx, y);
-
-    // Play again
-    y += 45;
-    ctx.font = 'bold 16px monospace';
-    ctx.fillStyle = '#fff';
-    const pulse = 0.6 + 0.4 * Math.sin(State.totalTime * 3);
-    ctx.globalAlpha = this.fadeIn * pulse;
-    ctx.fillText('[ CLICK TO PLAY AGAIN ]', cx, y);
-
-    ctx.globalAlpha = 1;
-    ctx.textAlign = 'left';
-  }
-};
-
-// ---- MENU ----
-function drawMenu() {
-  // Duck Hunt style background
-  Scenery.update(0.016);
-  drawBackground();
-  drawGround();
-
-  const cx = W / 2;
-  let y = 70;
-
-  // Title with shadow for readability on bright background
-  ctx.textAlign = 'center';
-  ctx.font = 'bold 44px monospace';
-  // Shadow
-  ctx.fillStyle = '#000';
-  ctx.fillText('DUCK', cx - 80 + 2, y + 2);
-  ctx.fillText('DRIFT', cx + 80 + 2, y + 2);
-  // Text
-  ctx.fillStyle = '#22cc22';
-  ctx.fillText('DUCK', cx - 80, y);
-  ctx.fillStyle = '#ee2222';
-  ctx.fillText('DRIFT', cx + 80, y);
-
-  y += 40;
-  ctx.font = 'bold 14px monospace';
-  ctx.fillStyle = '#000';
-  ctx.fillText('A Paper Trading Duck Hunt', cx + 1, y + 1);
-  ctx.fillStyle = '#fff';
-  ctx.fillText('A Paper Trading Duck Hunt', cx, y);
-
-  y += 50;
-  ctx.font = 'bold 12px monospace';
-  const lines = [
-    'Green ducks = LONG    Red ducks = SHORT',
-    '',
-    '1st SHOT opens a trade  |  2nd SHOT closes it',
-    'Tagged ducks fly wild - time your exit!',
-    '',
-    'GLOWING ducks = real signals',
-    'Normal ducks = traps & fakeouts',
-    '',
-    'The best move is often: DO NOTHING',
-  ];
-  for (const line of lines) {
-    ctx.fillStyle = '#000';
-    ctx.fillText(line, cx + 1, y + 1);
-    ctx.fillStyle = '#fff';
-    ctx.fillText(line, cx, y);
-    y += 20;
   }
 
-  y += 20;
-  ctx.font = 'bold 20px monospace';
-  const pulse = 0.5 + 0.5 * Math.sin(State.totalTime * 3);
-  ctx.fillStyle = '#000';
-  ctx.fillText('[ CLICK TO START ]', cx + 2, y + 2);
-  ctx.fillStyle = `rgba(255,255,255,${pulse})`;
-  ctx.fillText('[ CLICK TO START ]', cx, y);
-  ctx.textAlign = 'left';
+  var _pipeStep = 0;
+  var _pipeTimer = setInterval(function() { _pipeStep = (_pipeStep + 1) % 4; setStep(_pipeStep); }, 2200);
+  document.getElementById('pipe-demo').addEventListener('mouseenter', function() { clearInterval(_pipeTimer); });
+  document.getElementById('pipe-demo').addEventListener('mouseleave', function() {
+    _pipeTimer = setInterval(function() { _pipeStep = (_pipeStep + 1) % 4; setStep(_pipeStep); }, 2200);
+  });
 
-  // Decorative ducks flying
-  const f = Math.floor(State.totalTime * 4) % 3;
-  const gf = SpriteFactory.cache.greenDuck;
-  ctx.drawImage(gf[f], 80 + Math.sin(State.totalTime * 0.7) * 20, 50 + Math.sin(State.totalTime) * 15);
-  const rf = SpriteFactory.cache.redDuck;
-  ctx.drawImage(SpriteFactory.flip(rf[f]), W - 140 + Math.sin(State.totalTime * 0.5) * 20, 60 + Math.cos(State.totalTime * 0.8) * 15);
-}
+  var _obs = new IntersectionObserver(function(entries) {
+    entries.forEach(function(e) { if (e.isIntersecting) { e.target.classList.add('visible'); _obs.unobserve(e.target); } });
+  }, { threshold: 0.08, rootMargin: '0px 0px -30px 0px' });
+  document.querySelectorAll('.reveal').forEach(function(el) { _obs.observe(el); });
 
-// ---- GROUND ----
-// ---- DUCK HUNT STYLE BACKGROUND ----
-function drawBackground() {
-  // Bright blue sky (NES Duck Hunt blue)
-  const grad = ctx.createLinearGradient(0, 0, 0, H - 100);
-  grad.addColorStop(0, '#5C94FC');   // NES sky blue top
-  grad.addColorStop(0.6, '#6CA6FC'); // lighter blue
-  grad.addColorStop(1, '#88BBFF');   // horizon blue
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, H);
-
-  // Clouds
-  Scenery.drawClouds();
-
-  // Background tree (left side, like Duck Hunt)
-  const tree = SpriteFactory.cache.tree;
-  if (tree) ctx.drawImage(tree, 60, H - 100 - tree.height + 20);
-
-  // Bushes
-  const bush = SpriteFactory.cache.bush;
-  if (bush) {
-    ctx.drawImage(bush, W - 120, H - 100 - bush.height + 12);
-    ctx.drawImage(bush, W - 200, H - 100 - bush.height + 16);
-    ctx.drawImage(bush, 200, H - 100 - bush.height + 14);
-  }
-}
-
-function drawGround() {
-  const groundY = H - 100;
-
-  // Tall grass layer (multiple rows for depth, like Duck Hunt)
-  // Back grass row (darker)
-  ctx.fillStyle = '#1B8C1B';
-  for (let x = -5; x < W; x += 6) {
-    const h = 18 + Math.sin(x * 0.15 + 1) * 8 + Math.sin(x * 0.4) * 4;
-    ctx.fillRect(x, groundY - h, 4, h + 5);
+  function handleLogin() {
+    var btn = document.getElementById('submit-btn');
+    var err = document.getElementById('login-error');
+    var username = document.getElementById('username').value.trim();
+    var password = document.getElementById('password').value;
+    btn.textContent = 'Signing in…'; btn.disabled = true; err.classList.remove('show');
+    fetch('/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: username, password: password }) })
+      .then(function(res) {
+        if (res.ok) { window.location.href = '/app'; }
+        else { err.classList.add('show'); btn.textContent = 'Sign In →'; btn.disabled = false; }
+      })
+      .catch(function() { err.classList.add('show'); btn.textContent = 'Sign In →'; btn.disabled = false; });
   }
 
-  // Middle grass row
-  ctx.fillStyle = '#22AA22';
-  for (let x = -3; x < W; x += 5) {
-    const h = 22 + Math.sin(x * 0.2 + 2) * 10 + Math.sin(x * 0.5 + 1) * 5;
-    ctx.fillRect(x, groundY - h, 3, h + 5);
-  }
-
-  // Front grass row (brightest, tallest)
-  ctx.fillStyle = '#33CC33';
-  for (let x = 0; x < W; x += 4) {
-    const h = 28 + Math.sin(x * 0.18) * 12 + Math.sin(x * 0.6 + 3) * 6;
-    ctx.fillRect(x, groundY - h, 3, h + 5);
-  }
-
-  // Highlight grass tips
-  ctx.fillStyle = '#55DD55';
-  for (let x = 1; x < W; x += 7) {
-    const h = 30 + Math.sin(x * 0.18) * 12 + Math.sin(x * 0.6 + 3) * 6;
-    ctx.fillRect(x, groundY - h, 2, 4);
-  }
-
-  // Grass base (solid green strip)
-  ctx.fillStyle = '#1B8C1B';
-  ctx.fillRect(0, groundY, W, 8);
-
-  // Earth/dirt layer (brown, like Duck Hunt)
-  ctx.fillStyle = '#8B6914';
-  ctx.fillRect(0, groundY + 8, W, 6);
-  ctx.fillStyle = '#6B4E0A';
-  ctx.fillRect(0, groundY + 14, W, 30);
-
-  // Dark earth bottom
-  ctx.fillStyle = '#4A3508';
-  ctx.fillRect(0, groundY + 28, W, 20);
-}
-
-// ---- GUN ----
-function drawGun() {
-  const gun = SpriteFactory.cache.gun;
-  const gx = W / 2 - gun.width / 2;
-  const gy = H - 100 - gun.height + 15 + Effects.gunRecoil;
-  ctx.drawImage(gun, gx, gy);
-}
-
-// ---- MAIN GAME FUNCTIONS ----
-function startGame() {
-  State.reset();
-  State.phase = 'playing';
-  Market.reset();
-  Ducks.reset();
-  Trades.reset();
-  Effects.reset();
-  EndScreen.fadeIn = 0;
-}
-
-function endRound() {
-  // Apply final bonuses
-  const patienceBonus = Math.max(0, (60 - State.shotsFired * 3) * 5);
-  const overtradePenalty = State.shotsFired > CONFIG.overtradingThreshold
-    ? (State.shotsFired - CONFIG.overtradingThreshold) * -15 : 0;
-  State.score += patienceBonus + overtradePenalty;
-
-  State.phase = 'endscreen';
-  Audio.roundEnd();
-}
-
-let lastTime = 0;
-
-function gameLoop(timestamp) {
-  const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
-  lastTime = timestamp;
-  State.totalTime += dt;
-
-  ctx.clearRect(0, 0, W, H);
-
-  if (State.phase === 'menu') {
-    drawMenu();
-    Input.drawCrosshair();
-    requestAnimationFrame(gameLoop);
-    return;
-  }
-
-  if (State.phase === 'endscreen') {
-    // Draw game behind
-    drawGameFrame(dt, false);
-    EndScreen.draw();
-    Input.drawCrosshair();
-    requestAnimationFrame(gameLoop);
-    return;
-  }
-
-  // Playing
-  State.timeRemaining -= dt;
-  if (State.timeRemaining <= 0) {
-    State.timeRemaining = 0;
-    endRound();
-  }
-
-  drawGameFrame(dt, true);
-  Input.drawCrosshair();
-
-  requestAnimationFrame(gameLoop);
-}
-
-function drawGameFrame(dt, updateLogic) {
-  ctx.save();
-  Effects.applyShake();
-
-  if (updateLogic) {
-    Market.update(dt);
-    Ducks.update(dt);
-    Trades.update(dt);
-    State.updateMultiplier(dt);
-    Effects.update(dt);
-    Scenery.update(dt);
-  }
-
-  // Duck Hunt style background
-  drawBackground();
-
-  // Mini chart
-  Market.drawMiniChart();
-
-  // Ducks (fly in the sky area above grass)
-  Ducks.draw();
-
-  // Effects
-  Effects.drawParticles();
-  Effects.drawFloatingTexts();
-
-  // Ground (grass + earth on top of everything below)
-  drawGround();
-
-  // Gun (sits in the grass area)
-  drawGun();
-
-  ctx.restore();
-
-  // Flash overlay (after restore so no shake)
-  Effects.drawFlash();
-
-  // Trade result popups (above everything)
-  Effects.drawTradeResults();
-
-  // HUD
-  HUD.draw();
-
-  // Active trades
-  Trades.drawActive();
-}
-
-// ---- INIT ----
-SpriteFactory.init();
-Scenery.init();
-Input.init();
-
-// Resize handler
-function resize() {
-  const ratio = W / H;
-  let cw = window.innerWidth;
-  let ch = window.innerHeight;
-  if (cw / ch > ratio) {
-    cw = ch * ratio;
-  } else {
-    ch = cw / ratio;
-  }
-  canvas.style.width = cw + 'px';
-  canvas.style.height = ch + 'px';
-}
-window.addEventListener('resize', resize);
-resize();
-
-requestAnimationFrame(gameLoop);
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && (document.activeElement.id === 'username' || document.activeElement.id === 'password')) handleLogin();
+  });
 </script>
 </body>
 </html>
